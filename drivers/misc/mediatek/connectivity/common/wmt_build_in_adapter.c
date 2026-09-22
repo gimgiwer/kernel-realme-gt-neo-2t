@@ -202,6 +202,20 @@ void wmt_export_platform_bridge_unregister(void)
 }
 EXPORT_SYMBOL(wmt_export_platform_bridge_unregister);
 
+int conn_dbg_add_log(unsigned int type, const char *fmt, ...)
+{
+	struct va_format vaf;
+	va_list args;
+
+	va_start(args, fmt);
+	vaf.fmt = fmt;
+	vaf.va = &args;
+	pr_debug_ratelimited("[CONNDBG][%u] %pV\n", type, &vaf);
+	va_end(args);
+	return 0;
+}
+EXPORT_SYMBOL(conn_dbg_add_log);
+
 int mtk_wcn_cmb_stub_query_ctrl(void)
 {
 	CONNADP_DBG_FUNC("\n");

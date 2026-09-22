@@ -37,6 +37,7 @@ struct wmt_platform_bridge {
 
 void wmt_export_platform_bridge_register(struct wmt_platform_bridge *cb);
 void wmt_export_platform_bridge_unregister(void);
+__printf(2, 3) int conn_dbg_add_log(unsigned int type, const char *fmt, ...);
 
 
 /*******************************************************************************

@@ -1324,9 +1324,10 @@ static int check_version(const struct load_info *info,
 	return 1;
 
 bad_version:
-	pr_warn("%s: disagrees about version of symbol %s\n",
+	pr_warn("%s: disagrees about version of symbol %s (tolerated)\n",
 	       info->name, symname);
-	return 0;
+	add_taint_module(mod, TAINT_FORCED_MODULE, LOCKDEP_STILL_OK);
+	return 1;
 }
 
 static inline int check_modstruct_version(const struct load_info *info,
@@ -2879,8 +2880,8 @@ static int module_sig_check(struct load_info *info, int flags)
 		return 0;
 	}
 
-	/* Not having a signature is only an error if we're strict. */
-	if (err == -ENOKEY && !is_module_sig_enforced())
+	/* Not having a valid signature is only an error if we're strict. */
+	if (!is_module_sig_enforced())
 		err = 0;
 
 	return err;

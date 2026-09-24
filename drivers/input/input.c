@@ -367,9 +367,69 @@ static int input_get_disposition(struct input_dev *dev,
 	return disposition;
 }
 
+
 #ifdef CONFIG_KSU
 extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);
 #endif
+
+
+#if defined(OPLUS_FEATURE_SCHED_ASSIST) || defined(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
+#define SA_SCENE_INPUT (1 << 5)
+extern int sysctl_sched_assist_enabled;
+extern int sysctl_sched_assist_scene;
+extern int sysctl_input_boost_enabled;
+extern u64 sched_assist_input_boost_duration;
+
+static struct timer_list touch_boost_timer;
+static atomic_t touch_boost_active = ATOMIC_INIT(0);
+static atomic_long_t last_touch_boost_jiffies = ATOMIC_LONG_INIT(0);
+
+static void touch_boost_timer_fn(struct timer_list *t)
+{
+	BUILD_BUG_ON(sizeof(atomic_t) != sizeof(int));
+	if (atomic_xchg(&touch_boost_active, 0)) {
+		WRITE_ONCE(sysctl_input_boost_enabled, 0);
+		WRITE_ONCE(sched_assist_input_boost_duration, 0);
+		atomic_andnot(SA_SCENE_INPUT, (atomic_t *)&sysctl_sched_assist_scene);
+	}
+}
+
+void __init touch_microboost_init(void)
+{
+	timer_setup(&touch_boost_timer, touch_boost_timer_fn, 0);
+}
+
+static inline void touch_microboost_trigger(struct input_dev *dev, unsigned int type, unsigned int code, int value)
+{
+	unsigned long now, last;
+
+	if (type != EV_ABS || !dev ||
+	    (!test_bit(BTN_TOUCH, dev->keybit) &&
+	     !test_bit(INPUT_PROP_DIRECT, dev->propbit)))
+		return;
+
+	now = jiffies;
+	last = (unsigned long)atomic_long_read(&last_touch_boost_jiffies);
+	if (!time_after(now, last + msecs_to_jiffies(60)))
+		return;
+	if (atomic_long_cmpxchg(&last_touch_boost_jiffies, last, now) != last)
+		return;
+
+	if (READ_ONCE(sysctl_sched_assist_enabled)) {
+		BUILD_BUG_ON(sizeof(atomic_t) != sizeof(int));
+		atomic_set(&touch_boost_active, 1);
+		WRITE_ONCE(sched_assist_input_boost_duration,
+			   jiffies_to_msecs(now) + 35);
+		WRITE_ONCE(sysctl_input_boost_enabled, 1);
+		atomic_or(SA_SCENE_INPUT, (atomic_t *)&sysctl_sched_assist_scene);
+		mod_timer(&touch_boost_timer, now + msecs_to_jiffies(35));
+	}
+}
+#else
+static inline void touch_microboost_init(void) {}
+static inline void touch_microboost_trigger(struct input_dev *dev, unsigned int type, unsigned int code, int value) {}
+#endif
+
 
 static void input_handle_event(struct input_dev *dev,
 			       unsigned int type, unsigned int code, int value)
@@ -379,6 +439,9 @@ static void input_handle_event(struct input_dev *dev,
 #ifdef CONFIG_KSU
 	ksu_handle_input_handle_event(&type, &code, &value);
 #endif
+
+	touch_microboost_trigger(dev, type, code, value);
+
 
 	if (disposition != INPUT_IGNORE_EVENT && type != EV_SYN)
 		add_input_randomness(type, code, value);
@@ -2502,6 +2565,7 @@ static int __init input_init(void)
 		goto fail2;
 	}
 
+	touch_microboost_init();
 	return 0;
 
  fail2:	input_proc_exit();

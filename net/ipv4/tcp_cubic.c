@@ -288,7 +288,8 @@ static inline void bictcp_update(struct bictcp *ca, u32 cwnd, u32 acked)
 	/* c/rtt * (t-K)^3 */
 	delta = (cube_rtt_scale * offs * offs * offs) >> (10+3*BICTCP_HZ);
 	if (t < ca->bic_K)                            /* below origin*/
-		bic_target = ca->bic_origin_point - delta;
+		bic_target = (delta > ca->bic_origin_point) ? 0 :
+			     ca->bic_origin_point - delta;
 	else                                          /* above origin*/
 		bic_target = ca->bic_origin_point + delta;
 

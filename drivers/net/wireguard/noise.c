@@ -51,8 +51,8 @@ void wg_noise_precompute_static_static(struct wg_peer *peer)
 	    !curve25519(peer->handshake.precomputed_static_static,
 			peer->handshake.static_identity->static_private,
 			peer->handshake.remote_static))
-		memset(peer->handshake.precomputed_static_static, 0,
-		       NOISE_PUBLIC_KEY_LEN);
+		memzero_explicit(peer->handshake.precomputed_static_static,
+				 NOISE_PUBLIC_KEY_LEN);
 	up_write(&peer->handshake.lock);
 }
 
@@ -77,10 +77,10 @@ void wg_noise_handshake_init(struct noise_handshake *handshake,
 
 static void handshake_zero(struct noise_handshake *handshake)
 {
-	memset(&handshake->ephemeral_private, 0, NOISE_PUBLIC_KEY_LEN);
-	memset(&handshake->remote_ephemeral, 0, NOISE_PUBLIC_KEY_LEN);
-	memset(&handshake->hash, 0, NOISE_HASH_LEN);
-	memset(&handshake->chaining_key, 0, NOISE_HASH_LEN);
+	memzero_explicit(&handshake->ephemeral_private, NOISE_PUBLIC_KEY_LEN);
+	memzero_explicit(&handshake->remote_ephemeral, NOISE_PUBLIC_KEY_LEN);
+	memzero_explicit(&handshake->hash, NOISE_HASH_LEN);
+	memzero_explicit(&handshake->chaining_key, NOISE_HASH_LEN);
 	handshake->remote_index = 0;
 	handshake->state = HANDSHAKE_ZEROED;
 }

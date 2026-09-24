@@ -82,6 +82,10 @@
 #define PROC_FILES_NUM 1
 static struct proc_dir_entry *proc_files[PROC_FILES_NUM] = {
 	NULL};
+/* proc_mkdir("mtk_usb") fails on re-probe: the entry persists across
+ * probe/remove cycles and proc_register fires WARN_ON if called twice.
+ * Guard with this pointer; non-NULL means the dir is already there. */
+static struct proc_dir_entry *mtk_usb_proc_dir;
 
 enum ssusb_uwk_vers {
 	SSUSB_UWK_V1 = 1,
@@ -193,11 +197,18 @@ static void xhci_mtk_dbg_init(struct xhci_hcd_mtk *mtk)
 {
 	u8 idx = 0;
 
-	proc_mkdir("mtk_usb", NULL);
+	/* extcon re-probe leaves the procfs dir intact; proc_mkdir on an
+	 * existing entry goes through proc_register which hits WARN_ON. */
+	if (!mtk_usb_proc_dir)
+		mtk_usb_proc_dir = proc_mkdir("mtk_usb", NULL);
 
-	proc_files[idx] = proc_create_data("mtk_usb/testmode", 0644, NULL, &testmode_fops, mtk);
-	if (!proc_files[idx])
-		pr_info("%s: fail to create testmode node in procfs\n", __func__);
+	if (!proc_files[idx]) {
+		proc_files[idx] = proc_create_data("mtk_usb/testmode", 0644,
+						   NULL, &testmode_fops, mtk);
+		if (!proc_files[idx])
+			pr_info("%s: fail to create testmode node in procfs\n",
+				__func__);
+	}
 	idx++;
 }
 

@@ -49,12 +49,12 @@ do { \
 #define CONNADP_INFO_FUNC(fmt, arg...)  \
 do { \
 	if (gConnAdpDbgLvl >= CONNADP_LOG_INFO) \
-		pr_info("[I]%s:"  fmt, __func__, ##arg); \
+		pr_info_ratelimited("[I]%s:"  fmt, __func__, ##arg); \
 } while (0)
 #define CONNADP_WARN_FUNC(fmt, arg...) \
 do { \
 	if (gConnAdpDbgLvl >= CONNADP_LOG_WARN) \
-		pr_info("[W]%s:"  fmt, __func__, ##arg); \
+		pr_warn_ratelimited("[W]%s:"  fmt, __func__, ##arg); \
 } while (0)
 #define CONNADP_ERR_FUNC(fmt, arg...) \
 do { \
@@ -379,7 +379,7 @@ static void mtk_wcn_cmb_sdio_enable_eirq(void)
 		CONNADP_DBG_FUNC("wifi eint has been enabled\n");
 	else {
 		atomic_set(&irq_enable_flag, 1);
-		if (wifi_irq != 0xfffffff) {
+		if (wifi_irq != 0xffffffff) {
 			enable_irq(wifi_irq);
 			CONNADP_DBG_FUNC(" enable WIFI EINT %d!\n", wifi_irq);
 		}
@@ -391,7 +391,7 @@ static void mtk_wcn_cmb_sdio_disable_eirq(void)
 	if (!atomic_read(&irq_enable_flag))
 		CONNADP_DBG_FUNC("wifi eint has been disabled!\n");
 	else {
-		if (wifi_irq != 0xfffffff) {
+		if (wifi_irq != 0xffffffff) {
 			disable_irq_nosync(wifi_irq);
 			CONNADP_DBG_FUNC("disable WIFI EINT %d!\n", wifi_irq);
 		}

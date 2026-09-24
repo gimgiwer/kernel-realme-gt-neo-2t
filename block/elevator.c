@@ -1011,6 +1011,9 @@ int elevator_init_mq(struct request_queue *q)
 
 	WARN_ON_ONCE(test_bit(QUEUE_FLAG_REGISTERED, &q->queue_flags));
 
+	if (q->nr_hw_queues != 1)
+		return 0;
+
 	if (unlikely(q->elevator))
 		goto out;
 

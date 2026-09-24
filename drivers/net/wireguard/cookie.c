@@ -52,9 +52,9 @@ void wg_cookie_checker_precompute_device_keys(struct cookie_checker *checker)
 			       checker->device->static_identity.static_public,
 			       mac1_key_label);
 	} else {
-		memset(checker->cookie_encryption_key, 0,
-		       NOISE_SYMMETRIC_KEY_LEN);
-		memset(checker->message_mac1_key, 0, NOISE_SYMMETRIC_KEY_LEN);
+		memzero_explicit(checker->cookie_encryption_key,
+				 NOISE_SYMMETRIC_KEY_LEN);
+		memzero_explicit(checker->message_mac1_key, NOISE_SYMMETRIC_KEY_LEN);
 	}
 }
 

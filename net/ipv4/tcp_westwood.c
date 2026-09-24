@@ -217,8 +217,9 @@ static u32 tcp_westwood_bw_rttmin(const struct sock *sk)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
 	const struct westwood *w = inet_csk_ca(sk);
+	u32 mss = max_t(u32, tp->mss_cache, 1);
 
-	return max_t(u32, (w->bw_est * w->rtt_min) / tp->mss_cache, 2);
+	return max_t(u32, ((u64)w->bw_est * w->rtt_min) / mss, 2);
 }
 
 static void tcp_westwood_ack(struct sock *sk, u32 ack_flags)

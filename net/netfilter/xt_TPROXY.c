@@ -44,6 +44,9 @@ tproxy_tg4(struct net *net, struct sk_buff *skb, __be32 laddr, __be16 lport,
 	struct udphdr _hdr, *hp;
 	struct sock *sk;
 
+	if (unlikely(ip_is_fragment(iph)))
+		return NF_DROP;
+
 	hp = skb_header_pointer(skb, ip_hdrlen(skb), sizeof(_hdr), &_hdr);
 	if (hp == NULL)
 		return NF_DROP;

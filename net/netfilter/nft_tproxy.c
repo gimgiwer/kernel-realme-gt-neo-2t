@@ -68,10 +68,11 @@ static void nft_tproxy_eval_v4(const struct nft_expr *expr,
 					   skb->dev, NF_TPROXY_LOOKUP_LISTENER);
 	}
 
-	if (sk && nf_tproxy_sk_is_transparent(sk))
+	if (sk && nf_tproxy_sk_is_transparent(sk)) {
 		nf_tproxy_assign_sock(skb, sk);
-	else
+	} else {
 		regs->verdict.code = NFT_BREAK;
+	}
 }
 
 #if IS_ENABLED(CONFIG_NF_TABLES_IPV6)
@@ -140,10 +141,11 @@ static void nft_tproxy_eval_v6(const struct nft_expr *expr,
 	}
 
 	/* NOTE: assign_sock consumes our sk reference */
-	if (sk && nf_tproxy_sk_is_transparent(sk))
+	if (sk && nf_tproxy_sk_is_transparent(sk)) {
 		nf_tproxy_assign_sock(skb, sk);
-	else
+	} else {
 		regs->verdict.code = NFT_BREAK;
+	}
 }
 #endif
 

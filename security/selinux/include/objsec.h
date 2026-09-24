@@ -45,6 +45,8 @@ static inline u32 current_sid(void)
 {
 	const struct task_security_struct *tsec = current_security();
 
+	if (unlikely(!tsec))
+		return 0;
 	return tsec->sid;
 }
 
@@ -161,5 +163,20 @@ struct bpf_security_struct {
 struct perf_event_security_struct {
 	u32 sid;  /* SID of perf_event obj creator */
 };
+
+static inline struct inode_security_struct *selinux_inode(
+						const struct inode *inode)
+{
+	if (unlikely(!inode))
+		return NULL;
+	return inode->i_security;
+}
+
+static inline struct task_security_struct *selinux_cred(const struct cred *cred)
+{
+	if (unlikely(!cred))
+		return NULL;
+	return cred->security;
+}
 
 #endif /* _SELINUX_OBJSEC_H_ */

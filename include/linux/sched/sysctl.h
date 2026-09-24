@@ -35,6 +35,34 @@ extern unsigned int sysctl_sched_use_walt_task_util;
 extern unsigned int sysctl_sched_walt_init_task_load_pct;
 #endif /* defined (OPLUS_FEATURE_SCHED_ASSIST) && defined (CONFIG_SCHED_WALT) */
 
+extern unsigned long sched_prime_eeff_cap_khz;
+extern unsigned long sched_little_eeff_cap_khz;
+extern unsigned long sched_mid_eeff_cap_khz;
+
+enum sched_power_profile_id {
+	SCHED_PROFILE_SUPER_POWERSAVING = 0, /* super power saving (super_powersave_mode_state=1) */
+	SCHED_PROFILE_POWERSAVING       = 1, /* power saving (low_power=1) */
+	SCHED_PROFILE_BALANCED          = 2, /* balanced, 120Hz standard */
+	SCHED_PROFILE_GT                = 3, /* GT mode (gt_mode_state_setting=1) */
+	SCHED_PROFILE_MAX               = 4,
+
+	/* Backward compatibility aliases */
+	SCHED_PROFILE_SUPER_BATTERY     = SCHED_PROFILE_SUPER_POWERSAVING,
+	SCHED_PROFILE_SUPER_ECO         = SCHED_PROFILE_SUPER_POWERSAVING,
+	SCHED_PROFILE_ECO               = SCHED_PROFILE_POWERSAVING,
+	SCHED_PROFILE_BALANCE           = SCHED_PROFILE_BALANCED,
+};
+
+extern unsigned int sched_power_profile;
+void apply_sched_power_profile(unsigned int profile);
+void sugov_notify_eeff_cap_changed(void);
+int sched_power_profile_sysctl_handler(struct ctl_table *table, int write,
+					void __user *buffer, size_t *lenp,
+					loff_t *ppos);
+int sched_cluster_eeff_cap_sysctl_handler(struct ctl_table *table, int write,
+					  void __user *buffer, size_t *lenp,
+					  loff_t *ppos);
+
 enum sched_tunable_scaling {
 	SCHED_TUNABLESCALING_NONE,
 	SCHED_TUNABLESCALING_LOG,

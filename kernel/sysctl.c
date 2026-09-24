@@ -365,7 +365,96 @@ extern int sysctl_frame_rate;
 extern int sched_frame_rate_handler(struct ctl_table *table, int write, void __user *buffer, size_t *lenp, loff_t *ppos);
 #endif
 
+/* sysctl handler for sched_power_profile; validates range before applying (0-3) */
+int sched_power_profile_sysctl_handler(struct ctl_table *table, int write,
+					void __user *buffer, size_t *lenp,
+					loff_t *ppos)
+{
+	unsigned int val;
+	struct ctl_table tmp;
+	int ret;
+
+	if (!write)
+		return proc_douintvec(table, write, buffer, lenp, ppos);
+
+	tmp = *table;
+	tmp.data = &val;
+	val = READ_ONCE(sched_power_profile);
+
+	ret = proc_douintvec(&tmp, write, buffer, lenp, ppos);
+	if (ret == 0) {
+		if (val >= SCHED_PROFILE_MAX)
+			return -EINVAL;
+		apply_sched_power_profile(val);
+	}
+	return ret;
+}
+
+int sched_cluster_eeff_cap_sysctl_handler(struct ctl_table *table, int write,
+					  void __user *buffer, size_t *lenp,
+					  loff_t *ppos)
+{
+	int ret = proc_doulongvec_minmax(table, write, buffer, lenp, ppos);
+
+	if (ret == 0 && write)
+		sugov_notify_eeff_cap_changed();
+	return ret;
+}
+
 static struct ctl_table kern_table[] = {
+	{
+		/*
+		 * 4-level power profile (realme UI 4.0 / ColorOS mapping):
+		 * 0 = super power saving (super_powersave_mode_state=1)
+		 * 1 = power saving (low_power=1, battery saver tile)
+		 * 2 = balanced (120Hz default)
+		 * 3 = GT mode (gt_mode_state_setting=1, uncapped)
+		 */
+		.procname	= "sched_power_profile",
+		.data		= &sched_power_profile,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_power_profile_sysctl_handler,
+	},
+	{
+		/*
+		 * Prime CPU energy-efficiency ceiling in kHz.
+		 * Default 2463000 = 2.463 GHz @ 956 mV (Balanced profile cap on MT6893).
+		 * Set to 0 to disable cap (GT/gaming mode: full 3.0 GHz).
+		 * Values above hardware max_freq are silently clamped by schedutil.
+		 */
+		.procname	= "sched_prime_eeff_cap_khz",
+		.data		= &sched_prime_eeff_cap_khz,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= sched_cluster_eeff_cap_sysctl_handler,
+	},
+	{
+		/*
+		 * Little cluster (A55, CPUs 0-3) efficiency ceiling in kHz.
+		 * Default 1800000 = 1.800 GHz (best MIPS/mW for A55 on MT6893).
+		 * OPP above this: 2000 MHz (+10% perf, +18% power — not worth it for bg tasks).
+		 * Set to 0 to disable.
+		 */
+		.procname	= "sched_little_eeff_cap_khz",
+		.data		= &sched_little_eeff_cap_khz,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= sched_cluster_eeff_cap_sysctl_handler,
+	},
+	{
+		/*
+		 * Mid cluster (A78, CPUs 4-6) efficiency ceiling in kHz.
+		 * Default 2354000 = 2.354 GHz (best MIPS/mW for A78 Mid on MT6893).
+		 * OPP above this: 2507, 2600 MHz — voltage corner causes +20% power.
+		 * Set to 0 to disable.
+		 */
+		.procname	= "sched_mid_eeff_cap_khz",
+		.data		= &sched_mid_eeff_cap_khz,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= sched_cluster_eeff_cap_sysctl_handler,
+	},
 	{
 		.procname	= "sched_child_runs_first",
 		.data		= &sysctl_sched_child_runs_first,

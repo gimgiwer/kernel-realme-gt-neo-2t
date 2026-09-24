@@ -19,6 +19,9 @@
 #include <trace/events/power.h>
 #include "cpufreq_schedutil.h"
 #include "../../drivers/misc/mediatek/base/power/include/mtk_upower.h"
+#if IS_ENABLED(CONFIG_MTK_PPM)
+#include "../../drivers/misc/mediatek/include/mt-plat/mtk_ppm_api.h"
+#endif
 
 #if defined(OPLUS_FEATURE_TASK_CPUSTATS) && defined(CONFIG_OPLUS_SCHED)
 #include <linux/task_sched_info.h>
@@ -31,6 +34,162 @@ extern u64 ux_task_load[];
 
 void (*cpufreq_notifier_fp)(int cluster_id, unsigned long freq);
 EXPORT_SYMBOL(cpufreq_notifier_fp);
+
+/*
+ * Prime CPU (A78, CPU 7) energy-efficiency ceiling.
+ *
+ * MT6893 A78 Prime OPPs: ..., 1998 MHz @ 875 mV, 2141 MHz @ 900 mV,
+ * 2463 MHz @ 956 mV, up to 2991 MHz @ 1118 mV.
+ *
+ * Caps schedutil target for policy7. Write 0 to disable (GT/gaming: full 3.0 GHz).
+ *
+ * Units: kHz. Default: 2463000 (2.463 GHz @ 956 mV — Balanced profile cap on MT6893).
+ */
+unsigned long sched_prime_eeff_cap_khz = 2463000;
+EXPORT_SYMBOL(sched_prime_eeff_cap_khz);
+
+/*
+ * Little cluster (A55, CPUs 0-3, policy0) frequency ceiling.
+ * On MT6893 the 1800 MHz OPP sits at 950 mV; stepping up to 2000 MHz
+ * costs 50 mV and yields diminishing IPC returns.  0 disables the cap.
+ */
+unsigned long sched_little_eeff_cap_khz = 1800000;
+EXPORT_SYMBOL(sched_little_eeff_cap_khz);
+
+/*
+ * Mid cluster (A78, CPUs 4-6, policy4) frequency ceiling.
+ * 2354 MHz is the last OPP under 1V on MT6893; above that voltage
+ * rises steeply with little throughput gain.  0 disables the cap.
+ */
+unsigned long sched_mid_eeff_cap_khz = 2354000;
+EXPORT_SYMBOL(sched_mid_eeff_cap_khz);
+
+/*
+ * 4-level power profiles for MT6893 (Dimensity 1200 / realme UI 4.0).
+ *
+ * 0: Super Power Saving  -- 4L+1P, mid cores offline, ~66 mA idle.
+ * 1: Power Saving        -- all 8 cores, -20.6% vs Balanced, 120Hz ok.
+ * 2: Balanced            -- TSMC N6 V^2*f sweet spot, no thermal buildup.
+ * 3: GT Mode             -- all caps disabled, 250us up-delay.
+ */
+struct sched_profile_params {
+	unsigned long little_cap_khz;
+	unsigned long mid_cap_khz;
+	unsigned long prime_cap_khz;
+	unsigned int  up_rate_delay_us;
+	unsigned int  down_rate_delay_little_us;
+	unsigned int  down_rate_delay_mid_us;
+	unsigned int  down_rate_delay_prime_us;
+};
+
+static const struct sched_profile_params sched_profiles[SCHED_PROFILE_MAX] = {
+	[SCHED_PROFILE_SUPER_POWERSAVING] = {
+		.little_cap_khz            = 1625000, /* opp12: 906 mV plateau end, avoids 950 mV step */
+		.mid_cap_khz               = 1855000, /* opp10: 900 mV max, mid cores typically gated */
+		.prime_cap_khz             = 1998000, /* opp8: 875 mV floor, prevents ui jank at min */
+		.up_rate_delay_us          = 1000,
+		.down_rate_delay_little_us = 20000,
+		.down_rate_delay_mid_us    = 20000,
+		.down_rate_delay_prime_us  = 30000,
+	},
+	[SCHED_PROFILE_POWERSAVING] = {
+		.little_cap_khz            = 1625000, /* opp12: reuse 906 mV anchor from super-save */
+		.mid_cap_khz               = 1985000, /* opp11: 950 mV limit, keeps 8-core path under 1 V */
+		.prime_cap_khz             = 2141000, /* opp9: 900 mV peak, next opp burns too much */
+		.up_rate_delay_us          = 1000,
+		.down_rate_delay_little_us = 20000,
+		.down_rate_delay_mid_us    = 30000,
+		.down_rate_delay_prime_us  = 30000,
+	},
+	[SCHED_PROFILE_BALANCED] = {
+		.little_cap_khz            = 1800000, /* opp14: last opp under 1 V, next step poor scaling */
+		.mid_cap_khz               = 2354000, /* opp13: 1 V rail ceiling for mid cluster */
+		.prime_cap_khz             = 2463000, /* opp11: 956 mV sweet spot, avoids 1.12 V stock cost */
+		.up_rate_delay_us          = 500,
+		.down_rate_delay_little_us = 20000,
+		.down_rate_delay_mid_us    = 20000,
+		.down_rate_delay_prime_us  = 30000,
+	},
+	[SCHED_PROFILE_GT] = {
+		.little_cap_khz            = 0, /* no cap */
+		.mid_cap_khz               = 0, /* no cap */
+		.prime_cap_khz             = 0, /* no cap */
+		.up_rate_delay_us          = 250,
+		.down_rate_delay_little_us = 30000,
+		.down_rate_delay_mid_us    = 30000,
+		.down_rate_delay_prime_us  = 30000,
+	},
+};
+
+unsigned int sched_power_profile = SCHED_PROFILE_BALANCED;
+static DEFINE_MUTEX(sched_profile_mutex);
+
+static int __schedutil_set_up_rate_limit_us(int cpu, unsigned int rate_limit_us,
+					    bool force);
+static int __schedutil_set_down_rate_limit_us(int cpu, unsigned int rate_limit_us,
+					      bool force);
+int schedutil_set_up_rate_limit_us(int cpu, unsigned int rate_limit_us);
+int schedutil_set_down_rate_limit_us(int cpu, unsigned int rate_limit_us);
+
+void apply_sched_power_profile(unsigned int profile)
+{
+	bool can_sleep = !in_atomic() && !irqs_disabled();
+
+	if (profile >= SCHED_PROFILE_MAX)
+		return;
+
+	if (can_sleep)
+		mutex_lock(&sched_profile_mutex);
+
+	WRITE_ONCE(sched_little_eeff_cap_khz, sched_profiles[profile].little_cap_khz);
+	WRITE_ONCE(sched_mid_eeff_cap_khz,    sched_profiles[profile].mid_cap_khz);
+	WRITE_ONCE(sched_prime_eeff_cap_khz,  sched_profiles[profile].prime_cap_khz);
+	smp_store_release(&sched_power_profile, profile);
+
+	if (can_sleep) {
+		unsigned int up_us          = sched_profiles[profile].up_rate_delay_us;
+		unsigned int down_little_us = sched_profiles[profile].down_rate_delay_little_us;
+		unsigned int down_mid_us    = sched_profiles[profile].down_rate_delay_mid_us;
+		unsigned int down_prime_us  = sched_profiles[profile].down_rate_delay_prime_us;
+
+		/*
+		 * profile 0 (super power saving): mid cluster offline via PPM,
+		 * cuts VPROC2 rail to ~66 mA idle. All other profiles: full 8 cores.
+		 */
+#if IS_ENABLED(CONFIG_MTK_PPM)
+		struct ppm_limit_data core_limit[3];
+
+		if (profile == SCHED_PROFILE_SUPER_POWERSAVING) {
+			core_limit[0].min = -1;
+			core_limit[0].max = -1;
+			core_limit[1].min =  0;
+			core_limit[1].max =  0;
+			core_limit[2].min = -1;
+			core_limit[2].max = -1;
+		} else {
+			core_limit[0].min = -1;
+			core_limit[0].max = -1;
+			core_limit[1].min = -1;
+			core_limit[1].max = -1;
+			core_limit[2].min = -1;
+			core_limit[2].max = -1;
+		}
+		mt_ppm_forcelimit_cpu_core(3, core_limit);
+#endif
+
+		/* propagate rate limits to each policy in this cluster */
+		__schedutil_set_up_rate_limit_us(0, up_us, true);
+		__schedutil_set_down_rate_limit_us(0, down_little_us, true);
+		__schedutil_set_up_rate_limit_us(4, up_us, true);
+		__schedutil_set_down_rate_limit_us(4, down_mid_us, true);
+		__schedutil_set_up_rate_limit_us(7, up_us, true);
+		__schedutil_set_down_rate_limit_us(7, down_prime_us, true);
+
+		mutex_unlock(&sched_profile_mutex);
+
+		sugov_notify_eeff_cap_changed();
+	}
+}
 
 #if defined(OPLUS_FEATURE_SCHEDUTIL_USE_TL) && defined(CONFIG_SCHEDUTIL_USE_TL)
 /* Target load.  Lower values result in higher CPU speeds. */
@@ -64,6 +223,7 @@ struct sugov_policy {
 	unsigned int		next_freq;
 	unsigned int		cached_raw_freq;
 	unsigned int		prev_cached_raw_freq;
+	int			first_cpu;
 
 #if defined(OPLUS_FEATURE_SCHEDUTIL_USE_TL) && defined(CONFIG_SCHEDUTIL_USE_TL)
 	unsigned int len;
@@ -82,6 +242,51 @@ struct sugov_policy {
 	unsigned int flags;
 #endif
 };
+
+/*
+ * Per-cluster eeff ceiling for schedutil get_next_freq() hot path.
+ * Reads first_cpu from cache to skip cpumask scan on every tick.
+ * smp_load_acquire pairs with smp_store_release in apply_sched_power_profile()
+ * so all three cluster caps are visible atomically after a profile switch.
+ */
+static __always_inline unsigned int
+sugov_prime_eeff_cap(struct sugov_policy *sg_policy, unsigned int freq)
+{
+	struct cpufreq_policy *policy = sg_policy->policy;
+	unsigned long cap;
+	int first_cpu = sg_policy->first_cpu;
+
+	(void)smp_load_acquire(&sched_power_profile);
+
+	switch (first_cpu) {
+	case 0: /* A55 little cluster, CPUs 0-3 */
+		cap = READ_ONCE(sched_little_eeff_cap_khz);
+		break;
+	case 4: /* A78 mid cluster, CPUs 4-6 */
+		cap = READ_ONCE(sched_mid_eeff_cap_khz);
+		break;
+	case 7: /* A78 prime, CPU 7 */
+		cap = READ_ONCE(sched_prime_eeff_cap_khz);
+		break;
+	default:
+		return freq;
+	}
+
+	if (!cap)
+		return freq; /* cap == 0 means disabled */
+
+	if (likely(policy && policy->freq_table)) {
+		int idx = cpufreq_frequency_table_target(policy,
+							 (unsigned int)cap,
+							 CPUFREQ_RELATION_H);
+		if (idx >= 0)
+			cap = policy->freq_table[idx].frequency;
+		else
+			cap = policy->cpuinfo.min_freq;
+	}
+
+	return min(freq, (unsigned int)cap);
+}
 
 struct sugov_cpu {
 	struct update_util_data	update_util;
@@ -129,6 +334,9 @@ static bool sugov_should_update_freq(struct sugov_policy *sg_policy, u64 time)
 		sg_policy->need_freq_update = true;
 		return true;
 	}
+
+	if (unlikely(sg_policy->need_freq_update))
+		return true;
 
 	/* No need to recalculate next freq for min_rate_limit_us
 	 * at least. However we might still decide to further rate
@@ -456,9 +664,9 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 	sg_policy->cached_raw_freq = freq;
 
 #ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
-	return freq;
+	return sugov_prime_eeff_cap(sg_policy, freq);
 #else
-	return cpufreq_driver_resolve_freq(policy, freq);
+	return sugov_prime_eeff_cap(sg_policy, cpufreq_driver_resolve_freq(policy, freq));
 #endif
 }
 #endif
@@ -733,15 +941,26 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 				unsigned int flags)
 {
 	struct sugov_cpu *sg_cpu = container_of(hook, struct sugov_cpu, update_util);
-	struct sugov_policy *sg_policy = sg_cpu->sg_policy;
-/*#ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT */
-	struct cpufreq_policy *policy = sg_policy->policy;
-/*#endif */
-	int cid = arch_cpu_cluster_id(policy->cpu);
+	struct sugov_policy *sg_policy = READ_ONCE(sg_cpu->sg_policy);
+	struct cpufreq_policy *policy;
+	int cid;
 	unsigned long util, max;
 	unsigned int next_f;
 
+	if (unlikely(!sg_policy))
+		return;
+
+	policy = sg_policy->policy;
+	if (unlikely(!policy))
+		return;
+
+	cid = arch_cpu_cluster_id(policy->cpu);
+
 	raw_spin_lock(&sg_policy->update_lock);
+
+#if defined(OPLUS_FEATURE_SCHED_ASSIST) && defined(CONFIG_SCHED_WALT)
+	sg_policy->flags = flags;
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
 
 	sugov_iowait_boost(sg_cpu, time, flags);
 	sg_cpu->last_update = time;
@@ -790,16 +1009,22 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 
 }
 
-static unsigned int sugov_next_freq_shared(struct sugov_cpu *sg_cpu, u64 time)
+static unsigned int sugov_next_freq_shared(struct sugov_cpu *sg_cpu, struct sugov_policy *sg_policy, u64 time)
 {
-	struct sugov_policy *sg_policy = sg_cpu->sg_policy;
-	struct cpufreq_policy *policy = sg_policy->policy;
+	struct cpufreq_policy *policy;
 	unsigned long util = 0, max = 1;
 	unsigned int j;
 	unsigned int next_f;
 #ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
 	int cid;
 #endif
+
+	if (unlikely(!sg_policy))
+		return 0;
+
+	policy = sg_policy->policy;
+	if (unlikely(!policy || !policy->cpus))
+		return 0;
 
 	for_each_cpu(j, policy->cpus) {
 		struct sugov_cpu *j_sg_cpu = &per_cpu(sugov_cpu, j);
@@ -833,9 +1058,19 @@ static void
 sugov_update_shared(struct update_util_data *hook, u64 time, unsigned int flags)
 {
 	struct sugov_cpu *sg_cpu = container_of(hook, struct sugov_cpu, update_util);
-	struct sugov_policy *sg_policy = sg_cpu->sg_policy;
+	struct sugov_policy *sg_policy = READ_ONCE(sg_cpu->sg_policy);
+	struct cpufreq_policy *policy;
 	unsigned int next_f;
 	int cid;
+
+	if (unlikely(!sg_policy))
+		return;
+
+	policy = sg_policy->policy;
+	if (unlikely(!policy))
+		return;
+
+	cid = arch_cpu_cluster_id(policy->cpu);
 
 	raw_spin_lock(&sg_policy->update_lock);
 
@@ -848,10 +1083,8 @@ sugov_update_shared(struct update_util_data *hook, u64 time, unsigned int flags)
 
 	ignore_dl_rate_limit(sg_cpu, sg_policy);
 
-	cid = arch_cpu_cluster_id(sg_policy->policy->cpu);
-
 	if (sugov_should_update_freq(sg_policy, time)) {
-		next_f = sugov_next_freq_shared(sg_cpu, time);
+		next_f = sugov_next_freq_shared(sg_cpu, sg_policy, time);
 
 #ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
 		if (sugov_update_next_freq(sg_policy, time, next_f)) {
@@ -861,7 +1094,7 @@ sugov_update_shared(struct update_util_data *hook, u64 time, unsigned int flags)
 			trace_sched_util(cid, next_f, time);
 		}
 #else
-		if (sg_policy->policy->fast_switch_enabled)
+		if (policy->fast_switch_enabled)
 			sugov_fast_switch(sg_policy, time, next_f);
 		else
 			sugov_deferred_update(sg_policy, time, next_f);
@@ -951,6 +1184,9 @@ static ssize_t up_rate_limit_us_store(struct gov_attr_set *attr_set,
 	if (kstrtouint(buf, 10, &rate_limit_us))
 		return -EINVAL;
 
+	if (READ_ONCE(sched_power_profile) < SCHED_PROFILE_MAX)
+		return count;
+
 	tunables->up_rate_limit_us = rate_limit_us;
 
 	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook) {
@@ -971,6 +1207,9 @@ static ssize_t down_rate_limit_us_store(struct gov_attr_set *attr_set,
 	if (kstrtouint(buf, 10, &rate_limit_us))
 		return -EINVAL;
 
+	if (READ_ONCE(sched_power_profile) < SCHED_PROFILE_MAX)
+		return count;
+
 	tunables->down_rate_limit_us = rate_limit_us;
 
 	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook) {
@@ -983,6 +1222,28 @@ static ssize_t down_rate_limit_us_store(struct gov_attr_set *attr_set,
 
 static struct governor_attr up_rate_limit_us = __ATTR_RW(up_rate_limit_us);
 static struct governor_attr down_rate_limit_us = __ATTR_RW(down_rate_limit_us);
+
+static ssize_t power_profile_show(struct gov_attr_set *attr_set, char *buf)
+{
+	return sprintf(buf, "%u\n", READ_ONCE(sched_power_profile));
+}
+
+static ssize_t power_profile_store(struct gov_attr_set *attr_set,
+				   const char *buf, size_t count)
+{
+	unsigned int profile;
+
+	if (kstrtouint(buf, 10, &profile))
+		return -EINVAL;
+
+	if (profile >= SCHED_PROFILE_MAX)
+		return -EINVAL;
+
+	apply_sched_power_profile(profile);
+	return count;
+}
+
+static struct governor_attr power_profile = __ATTR_RW(power_profile);
 
 #if defined(OPLUS_FEATURE_SCHEDUTIL_USE_TL) && defined(CONFIG_SCHEDUTIL_USE_TL)
 static ssize_t target_loads_show(struct gov_attr_set *attr_set, char *buf)
@@ -1155,6 +1416,7 @@ static struct governor_attr target_loads =
 static struct attribute *sugov_attributes[] = {
 	&up_rate_limit_us.attr,
 	&down_rate_limit_us.attr,
+	&power_profile.attr,
 #if defined(OPLUS_FEATURE_SCHEDUTIL_USE_TL) && defined(CONFIG_SCHEDUTIL_USE_TL)
 	&target_loads.attr,
 #endif
@@ -1170,19 +1432,42 @@ static struct kobj_type sugov_tunables_ktype = {
 
 struct cpufreq_governor schedutil_gov;
 
-int schedutil_set_down_rate_limit_us(int cpu, unsigned int rate_limit_us)
+void sugov_notify_eeff_cap_changed(void)
+{
+	int cpu;
+
+	cpus_read_lock();
+	for_each_online_cpu(cpu) {
+		struct sugov_cpu *sg_cpu = &per_cpu(sugov_cpu, cpu);
+		struct sugov_policy *sg_policy = READ_ONCE(sg_cpu->sg_policy);
+
+		if (sg_policy) {
+			WRITE_ONCE(sg_policy->need_freq_update, true);
+			WRITE_ONCE(sg_policy->limits_changed, true);
+		}
+	}
+	cpus_read_unlock();
+}
+
+static int __schedutil_set_down_rate_limit_us(int cpu, unsigned int rate_limit_us,
+					      bool force)
 {
 	struct cpufreq_policy *policy;
 	struct sugov_policy *sg_policy;
 	struct sugov_tunables *tunables;
 	struct gov_attr_set *attr_set;
 
+	if (!force && READ_ONCE(sched_power_profile) < SCHED_PROFILE_MAX)
+		return 0;
+
 	policy = cpufreq_cpu_get(cpu);
 	if (!policy)
 		return -EINVAL;
 
-	if (policy->governor != &schedutil_gov)
+	if (policy->governor != &schedutil_gov) {
+		cpufreq_cpu_put(policy);
 		return -ENOENT;
+	}
 
 	mutex_lock(&global_tunables_lock);
 	sg_policy = policy->governor_data;
@@ -1204,25 +1489,35 @@ int schedutil_set_down_rate_limit_us(int cpu, unsigned int rate_limit_us)
 	mutex_unlock(&attr_set->update_lock);
 	mutex_unlock(&global_tunables_lock);
 
-	if (policy)
-		cpufreq_cpu_put(policy);
+	cpufreq_cpu_put(policy);
 	return 0;
+}
+
+int schedutil_set_down_rate_limit_us(int cpu, unsigned int rate_limit_us)
+{
+	return __schedutil_set_down_rate_limit_us(cpu, rate_limit_us, false);
 }
 EXPORT_SYMBOL(schedutil_set_down_rate_limit_us);
 
-int schedutil_set_up_rate_limit_us(int cpu, unsigned int rate_limit_us)
+static int __schedutil_set_up_rate_limit_us(int cpu, unsigned int rate_limit_us,
+					    bool force)
 {
 	struct cpufreq_policy *policy;
 	struct sugov_policy *sg_policy;
 	struct sugov_tunables *tunables;
 	struct gov_attr_set *attr_set;
 
+	if (!force && READ_ONCE(sched_power_profile) < SCHED_PROFILE_MAX)
+		return 0;
+
 	policy = cpufreq_cpu_get(cpu);
 	if (!policy)
 		return -EINVAL;
 
-	if (policy->governor != &schedutil_gov)
+	if (policy->governor != &schedutil_gov) {
+		cpufreq_cpu_put(policy);
 		return -ENOENT;
+	}
 
 	mutex_lock(&global_tunables_lock);
 	sg_policy = policy->governor_data;
@@ -1244,9 +1539,13 @@ int schedutil_set_up_rate_limit_us(int cpu, unsigned int rate_limit_us)
 	mutex_unlock(&attr_set->update_lock);
 	mutex_unlock(&global_tunables_lock);
 
-	if (policy)
-		cpufreq_cpu_put(policy);
+	cpufreq_cpu_put(policy);
 	return 0;
+}
+
+int schedutil_set_up_rate_limit_us(int cpu, unsigned int rate_limit_us)
+{
+	return __schedutil_set_up_rate_limit_us(cpu, rate_limit_us, false);
 }
 EXPORT_SYMBOL(schedutil_set_up_rate_limit_us);
 
@@ -1259,6 +1558,7 @@ static struct sugov_policy *sugov_policy_alloc(struct cpufreq_policy *policy)
 		return NULL;
 
 	sg_policy->policy = policy;
+	sg_policy->first_cpu = cpumask_first(policy->related_cpus);
 	raw_spin_lock_init(&sg_policy->update_lock);
 	return sg_policy;
 }
@@ -1399,8 +1699,25 @@ static int sugov_init(struct cpufreq_policy *policy)
 		goto stop_kthread;
 	}
 
-	tunables->up_rate_limit_us = cpufreq_policy_transition_delay_us(policy);
-	tunables->down_rate_limit_us = cpufreq_policy_transition_delay_us(policy);
+	/* pick up current profile limits when a policy comes online */
+	{
+		unsigned int prof = READ_ONCE(sched_power_profile);
+		int first_cpu = cpumask_first(policy->related_cpus);
+
+		if (prof >= SCHED_PROFILE_MAX)
+			prof = SCHED_PROFILE_BALANCED;
+
+		tunables->up_rate_limit_us = sched_profiles[prof].up_rate_delay_us;
+		if (first_cpu == 7)
+			tunables->down_rate_limit_us =
+				sched_profiles[prof].down_rate_delay_prime_us;
+		else if (first_cpu >= 4)
+			tunables->down_rate_limit_us =
+				sched_profiles[prof].down_rate_delay_mid_us;
+		else
+			tunables->down_rate_limit_us =
+				sched_profiles[prof].down_rate_delay_little_us;
+	}
 
 #if defined(OPLUS_FEATURE_SCHEDUTIL_USE_TL) && defined(CONFIG_SCHEDUTIL_USE_TL)
 	tunables->target_loads = default_target_loads;
@@ -1515,6 +1832,12 @@ static void sugov_stop(struct cpufreq_policy *policy)
 		cpufreq_remove_update_util_hook(cpu);
 
 	synchronize_sched();
+
+	for_each_cpu(cpu, policy->cpus) {
+		struct sugov_cpu *sg_cpu = &per_cpu(sugov_cpu, cpu);
+
+		WRITE_ONCE(sg_cpu->sg_policy, NULL);
+	}
 
 	if (!policy->fast_switch_enabled) {
 		irq_work_sync(&sg_policy->irq_work);

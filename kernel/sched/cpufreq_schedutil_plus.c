@@ -60,7 +60,10 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 	}
 
 	freq = mt_cpufreq_get_cpu_freq(cpu, target_idx);
+	freq = sugov_prime_eeff_cap(sg_policy, freq);
 
+	sg_policy->need_freq_update = false;
+	sg_policy->prev_cached_raw_freq = sg_policy->cached_raw_freq;
 	sg_policy->cached_raw_freq = freq;
 	return cpufreq_driver_resolve_freq(policy, freq);
 }

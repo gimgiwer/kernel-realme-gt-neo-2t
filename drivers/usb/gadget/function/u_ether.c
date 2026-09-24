@@ -723,10 +723,11 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	static DEFINE_RATELIMIT_STATE(ratelimit1, 1 * HZ, 2);
 	static DEFINE_RATELIMIT_STATE(ratelimit2, 1 * HZ, 2);
 
-	if (!skb)
-		return -EINVAL;
-
-	pinfo = skb_shinfo(skb);
+	/*
+	 * f_ncm flushes pending NTB buffers via ndo_start_xmit(NULL, netdev).
+	 * dev->wrap() assembles the queued frame from null skb and returns the
+	 * completed NTB skb; pinfo must be read after wrap() for this reason.
+	 */
 
 	spin_lock_irqsave(&dev->lock, flags);
 	if (dev->port_usb) {
@@ -737,8 +738,9 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	}
 	spin_unlock_irqrestore(&dev->lock, flags);
 
-	if (skb && !in) {
-		dev_kfree_skb_any(skb);
+	if (!in) {
+		if (skb)
+			dev_kfree_skb_any(skb);
 		return NETDEV_TX_OK;
 	}
 
@@ -767,17 +769,21 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	spin_lock_irqsave(&dev->lock, flags);
 	if (dev->wrap && dev->port_usb)
 		skb = dev->wrap(dev->port_usb, skb);
-	spin_unlock_irqrestore(&dev->lock, flags);
 	if (!skb) {
-		if (!dev->port_usb->supports_multi_frame)
+		if (dev->port_usb && !dev->port_usb->supports_multi_frame)
 			dev->net->stats.tx_dropped++;
+		spin_unlock_irqrestore(&dev->lock, flags);
 		return NETDEV_TX_OK;
 	}
+	spin_unlock_irqrestore(&dev->lock, flags);
+
+	pinfo = skb_shinfo(skb);
 	spin_lock_irqsave(&dev->req_lock, flags);
 	if (multi_pkt_xfer && !dev->tx_req_bufsize) {
 		retval = alloc_tx_buffer(dev);
 		if (retval < 0) {
 			spin_unlock_irqrestore(&dev->req_lock, flags);
+			dev_kfree_skb_any(skb);
 			return -ENOMEM;
 		}
 	}
@@ -807,8 +813,10 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 			U_ETHER_DBG("okCnt: %lu, busyCnt: %lu, tx_busy: %lu\n",
 					okCnt, busyCnt, rndis_test_tx_busy);
 		spin_unlock_irqrestore(&dev->req_lock, flags);
+		dev_kfree_skb_any(skb);
+		dev->net->stats.tx_dropped++;
 		rndis_test_tx_busy++;
-		return NETDEV_TX_BUSY;
+		return NETDEV_TX_OK;
 	}
 	okCnt++;
 
@@ -832,6 +840,9 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 
 	if (dev->port_usb == NULL) {
 		dev_kfree_skb_any(skb);
+		spin_lock_irqsave(&dev->req_lock, flags);
+		list_add_tail(&req->list, &dev->tx_reqs);
+		spin_unlock_irqrestore(&dev->req_lock, flags);
 		U_ETHER_DBG("port_usb NULL\n");
 		return NETDEV_TX_OK;
 	}

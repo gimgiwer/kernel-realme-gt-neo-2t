@@ -1143,10 +1143,14 @@ err:
 
 	if (skb)
 		dev_kfree_skb_any(skb);
-	if (ncm->skb_tx_data)
+	if (ncm->skb_tx_data) {
 		dev_kfree_skb_any(ncm->skb_tx_data);
-	if (ncm->skb_tx_ndp)
+		ncm->skb_tx_data = NULL;
+	}
+	if (ncm->skb_tx_ndp) {
 		dev_kfree_skb_any(ncm->skb_tx_ndp);
+		ncm->skb_tx_ndp = NULL;
+	}
 
 	return NULL;
 }
@@ -1158,6 +1162,7 @@ err:
 static enum hrtimer_restart ncm_tx_timeout(struct hrtimer *data)
 {
 	struct f_ncm *ncm = container_of(data, struct f_ncm, task_timer);
+	struct net_device *netdev = READ_ONCE(ncm->netdev);
 
 	/* Only send if data is available. */
 	if (!ncm->timer_stopping && ncm->skb_tx_data) {
@@ -1169,7 +1174,8 @@ static enum hrtimer_restart ncm_tx_timeout(struct hrtimer *data)
 		 * XXX and performed in some way outside of the ndo_start_xmit
 		 * XXX interface.
 		 */
-		ncm->netdev->netdev_ops->ndo_start_xmit(NULL, ncm->netdev);
+		if (netdev)
+			netdev->netdev_ops->ndo_start_xmit(NULL, netdev);
 
 		ncm->timer_force_tx = false;
 	}
@@ -1361,6 +1367,7 @@ static void ncm_disable(struct usb_function *f)
 
 	if (ncm->port.in_ep->enabled) {
 		ncm->timer_stopping = true;
+		hrtimer_cancel(&ncm->task_timer);
 		ncm->netdev = NULL;
 		gether_disconnect(&ncm->port);
 	}
@@ -1613,7 +1620,7 @@ static struct usb_function_instance *ncm_alloc_inst(void)
 		return ERR_PTR(-ENOMEM);
 	mutex_init(&opts->lock);
 	opts->func_inst.free_func_inst = ncm_free_inst;
-	opts->net = gether_setup_default();
+	opts->net = gether_setup_name_default("rndis");
 	if (IS_ERR(opts->net)) {
 		struct net_device *net = opts->net;
 		kfree(opts);
@@ -1706,6 +1713,32 @@ static struct usb_function *ncm_alloc(struct usb_function_instance *fi)
 	return &ncm->port.func;
 }
 
-DECLARE_USB_FUNCTION_INIT(ncm, ncm_alloc_inst, ncm_alloc);
+DECLARE_USB_FUNCTION(ncm, ncm_alloc_inst, ncm_alloc);
+/* vendor init.rc references functions/rndis.gs4 on erofs; registering NCM
+ * under "rndis" satisfies that without touching read-only partitions.
+ * CONFIG_USB_CONFIGFS_RNDIS=n so the name does not collide. */
+DECLARE_USB_FUNCTION(rndis, ncm_alloc_inst, ncm_alloc);
+
+static int __init ncm_mod_init(void)
+{
+	int ret;
+
+	ret = usb_function_register(&ncmusb_func);
+	if (ret)
+		return ret;
+	ret = usb_function_register(&rndisusb_func);
+	if (ret)
+		usb_function_unregister(&ncmusb_func);
+	return ret;
+}
+
+static void __exit ncm_mod_exit(void)
+{
+	usb_function_unregister(&rndisusb_func);
+	usb_function_unregister(&ncmusb_func);
+}
+
+module_init(ncm_mod_init);
+module_exit(ncm_mod_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Yauheni Kaliuta");

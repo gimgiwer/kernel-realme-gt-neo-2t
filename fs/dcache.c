@@ -31,6 +31,12 @@
 #include <linux/bit_spinlock.h>
 #include <linux/rculist_bl.h>
 #include <linux/list_lru.h>
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs.h>
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+#include <linux/susfs_def.h>
+#endif
 #include "internal.h"
 #include "mount.h"
 
@@ -2190,6 +2196,14 @@ seqretry:
 			if (dentry_cmp(dentry, str, hashlen_len(hashlen)) != 0)
 				continue;
 		}
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		{
+			struct inode *inode = READ_ONCE(dentry->d_inode);
+			if (inode && unlikely(inode->i_state & INODE_STATE_SUS_PATH) &&
+			    likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC))
+				continue;
+		}
+#endif
 		*seqp = seq;
 		return dentry;
 	}
@@ -2271,6 +2285,15 @@ struct dentry *__d_lookup(const struct dentry *parent, const struct qstr *name)
 
 		if (dentry->d_name.hash != hash)
 			continue;
+
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		{
+			struct inode *inode = READ_ONCE(dentry->d_inode);
+			if (inode && unlikely(inode->i_state & INODE_STATE_SUS_PATH) &&
+			    likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC))
+				continue;
+		}
+#endif
 
 		spin_lock(&dentry->d_lock);
 		if (dentry->d_parent != parent)
@@ -3118,4 +3141,7 @@ void __init vfs_caches_init(void)
 	mnt_init();
 	bdev_cache_init();
 	chrdev_init();
+#ifdef CONFIG_KSU_SUSFS
+	susfs_init();
+#endif
 }

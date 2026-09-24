@@ -13,6 +13,10 @@
 #include <linux/seq_file.h>
 #include <linux/proc_fs.h>
 #include <linux/exportfs.h>
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs.h>
+#include <linux/susfs_def.h>
+#endif
 
 #include "inotify/inotify.h"
 #include "fsnotify.h"
@@ -83,13 +87,30 @@ static void inotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark)
 	inode_mark = container_of(mark, struct inotify_inode_mark, fsn_mark);
 	inode = igrab(fsnotify_conn_inode(mark->connector));
 	if (inode) {
-		/*
-		 * IN_ALL_EVENTS represents all of the mask bits
-		 * that we expose to userspace.  There is at
-		 * least one bit (FS_EVENT_ON_CHILD) which is
-		 * used only internally to the kernel.
-		 */
 		u32 mask = mark->mask & IN_ALL_EVENTS;
+#ifdef CONFIG_KSU_SUSFS
+		if (likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC)) {
+			if (unlikely(inode->i_state & (INODE_STATE_SUS_PATH | INODE_STATE_SUS_MOUNT))) {
+				iput(inode);
+				return;
+			}
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+			if (unlikely(inode->i_state & INODE_STATE_SUS_KSTAT)) {
+				dev_t sdev = inode->i_sb->s_dev;
+				unsigned long ino = inode->i_ino;
+
+				susfs_sus_ino_for_show_map_vma(inode->i_ino, &sdev, &ino);
+				seq_printf(m, "inotify wd:%x ino:%lx sdev:%x mask:%x ignored_mask:%x ",
+					   inode_mark->wd, ino, sdev,
+					   mask, mark->ignored_mask);
+				show_mark_fhandle(m, inode);
+				seq_putc(m, '\n');
+				iput(inode);
+				return;
+			}
+#endif
+		}
+#endif
 		seq_printf(m, "inotify wd:%x ino:%lx sdev:%x mask:%x ignored_mask:%x ",
 			   inode_mark->wd, inode->i_ino, inode->i_sb->s_dev,
 			   mask, mark->ignored_mask);

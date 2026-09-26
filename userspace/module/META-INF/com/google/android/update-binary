@@ -1,0 +1,39 @@
+#!/sbin/sh
+umask 022
+
+OUTFD=$2
+ZIPFILE=$3
+
+ui_print() {
+  if [ -e "/proc/self/fd/$OUTFD" ]; then
+    printf "ui_print %s\nui_print\n" "$1" > "/proc/self/fd/$OUTFD"
+  else
+    printf "%s\n" "$1"
+  fi
+}
+
+MODID="rmx3357_neocore_companion"
+MODPATH="/data/adb/modules/$MODID"
+
+ui_print "**********************************************"
+ui_print "* NeoCore Companion Module for Realme GT Neo 2T *"
+ui_print "**********************************************"
+
+mkdir -p -m 0755 "$MODPATH"
+[ -n "$MODPATH" ] && rm -rf "${MODPATH:?}"/*
+unzip -o "$ZIPFILE" -x "META-INF/*" -d "$MODPATH" >&2
+
+rm -f /data/adb/service.d/00_system_service.sh /data/adb/service.d/99_power_profile_sync.sh 2>/dev/null
+
+chown -R 0:0 "$MODPATH"
+find "$MODPATH" -type d -exec chmod 0755 {} +
+find "$MODPATH" -type f -exec chmod 0644 {} +
+find "$MODPATH" -type f -name "*.sh" -exec chmod 0755 {} +
+chcon -R u:object_r:system_file:s0 "$MODPATH" 2>/dev/null || restorecon -R "$MODPATH" 2>/dev/null || true
+
+ui_print "- Installing NeoCore Companion scripts..."
+ui_print "- service: debloat, dynamic VSYNC, adaptive ART, low-latency TCP"
+ui_print "- power_sync: event-driven power profile bridge"
+ui_print " "
+ui_print "- Installation complete! Reboot recommended."
+exit 0

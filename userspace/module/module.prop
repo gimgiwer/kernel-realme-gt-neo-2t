@@ -1,0 +1,7 @@
+id=rmx3357_neocore_companion
+name=NeoCore Companion for Realme GT Neo 2T
+version=v2026.09.26
+versionCode=20260926
+author=gimgiwer
+description=Maps ColorOS power modes to NeoCore scheduler profiles and kills MediaTek debug loggers. Tunes ART heap, UFS queues, and TCP stack.
+updateJson=https://raw.githubusercontent.com/gimgiwer/kernel-realme-gt-neo-2t/main/userspace/module/update.json

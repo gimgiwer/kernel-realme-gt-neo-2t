@@ -1,0 +1,7 @@
+# ART Runtime & Garbage Collection Tuning (applied by KernelSU resetprop pre-Zygote)
+dalvik.vm.heapstartsize=12m
+dalvik.vm.heapgrowthlimit=512m
+dalvik.vm.heapsize=768m
+dalvik.vm.heaptargetutilization=0.70
+dalvik.vm.heapminfree=12m
+dalvik.vm.heapmaxfree=48m

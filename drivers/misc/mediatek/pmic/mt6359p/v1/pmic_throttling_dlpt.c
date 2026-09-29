@@ -529,7 +529,33 @@ int g_battery_percent_stop;
 int g_battery_percent_level_ext;
 #endif
 
-#define BAT_PERCENT_LINIT 15
+static unsigned int mtk_bat_percent_limit = 15;
+
+static int mtk_bat_percent_limit_set(const char *val,
+				     const struct kernel_param *kp)
+{
+	unsigned int v;
+	int ret;
+
+	if (!val)
+		return -EINVAL;
+	ret = kstrtouint(val, 0, &v);
+	if (ret)
+		return ret;
+	if (v > 95)
+		return -EINVAL;
+	*(unsigned int *)kp->arg = v;
+	return 0;
+}
+
+static const struct kernel_param_ops mtk_bat_percent_limit_ops = {
+	.set = mtk_bat_percent_limit_set,
+	.get = param_get_uint,
+};
+module_param_cb(bat_percent_limit, &mtk_bat_percent_limit_ops,
+		&mtk_bat_percent_limit, 0644);
+MODULE_PARM_DESC(bat_percent_limit,
+	"Low battery percentage throttling threshold 0-95 (default 15)");
 #ifdef BATTERY_PERCENT_NOTIFY_EXT
 #define BAT_PERCENT_LINIT_EXT_LOW 20
 #define BAT_PERCENT_LINIT_EXT_HIGH 25
@@ -569,8 +595,10 @@ void register_battery_percent_notify(
 		if (battery_percent_callback != NULL)
 			battery_percent_callback(BATTERY_PERCENT_LEVEL_1);
 #else
-		if (prio_val == BATTERY_PERCENT_PRIO_FLASHLIGHT) {
-			pr_info("[%s at DLPT] level l happen\n", __func__);
+		if (prio_val == BATTERY_PERCENT_PRIO_FLASHLIGHT ||
+		    prio_val == BATTERY_PERCENT_PRIO_CPU_L) {
+			pr_info("[%s at DLPT] level l happen, prio=%d\n",
+				__func__, prio_val);
 			if (battery_percent_callback != NULL)
 				battery_percent_callback(
 						BATTERY_PERCENT_LEVEL_1);
@@ -599,6 +627,13 @@ void exec_battery_percent_callback(
 			}
 		}
 #else
+		if (bpcb_tb[BATTERY_PERCENT_PRIO_CPU_L].bpcb != NULL) {
+			bpcb_tb[BATTERY_PERCENT_PRIO_CPU_L].bpcb(
+				battery_percent_level);
+			pr_info("[%s at DLPT] prio_val=%d,battery_percent_level=%d\n",
+				__func__, BATTERY_PERCENT_PRIO_CPU_L,
+				battery_percent_level);
+		}
 		if (bpcb_tb[BATTERY_PERCENT_PRIO_FLASHLIGHT].bpcb != NULL) {
 			bpcb_tb[BATTERY_PERCENT_PRIO_FLASHLIGHT].bpcb(
 				battery_percent_level);
@@ -711,20 +746,25 @@ int dlpt_psy_event(struct notifier_block *nb, unsigned long event, void *v)
 		if (!ret)
 			bat_status = val.intval;
 
+		/* Condition to enter throttling: soc <= mtk_bat_percent_limit and discharging */
 		if ((bat_status != POWER_SUPPLY_STATUS_CHARGING &&
 			bat_status != -1) &&
 			(g_battery_percent_level == BATTERY_PERCENT_LEVEL_0) &&
-			(uisoc <= BAT_PERCENT_LINIT && uisoc > 0)) {
+			(uisoc > 0 && (unsigned int)uisoc <= mtk_bat_percent_limit)) {
 			g_battery_percent_level = BATTERY_PERCENT_LEVEL_1;
 			bat_percent_notify_flag = true;
-			PMICLOG("bat_percent_notify called, l=%d s=%d soc=%d\n",
-				g_battery_percent_level, bat_status, uisoc);
-		} else if (((bat_status == POWER_SUPPLY_STATUS_CHARGING) ||
-			(uisoc > BAT_PERCENT_LINIT)) &&
-			(g_battery_percent_level == BATTERY_PERCENT_LEVEL_1)) {
+			wake_up_interruptible(&bat_percent_notify_waiter);
+			PMICLOG("bat_percent_notify ENTER throttled, l=%d soc=%d\n",
+				g_battery_percent_level, uisoc);
+		/* Condition to exit throttling: soc >= threshold + 3% (hysteresis) OR charger attached */
+		} else if ((bat_status != -1) &&
+			(g_battery_percent_level == BATTERY_PERCENT_LEVEL_1) &&
+			((uisoc > 0 && (unsigned int)uisoc >= (mtk_bat_percent_limit + 3)) ||
+			 (bat_status == POWER_SUPPLY_STATUS_CHARGING))) {
 			g_battery_percent_level = BATTERY_PERCENT_LEVEL_0;
 			bat_percent_notify_flag = true;
-			PMICLOG("bat_percent_notify called, l=%d s=%d soc=%d\n",
+			wake_up_interruptible(&bat_percent_notify_waiter);
+			PMICLOG("bat_percent_notify EXIT throttled, l=%d s=%d soc=%d\n",
 				g_battery_percent_level, bat_status, uisoc);
 		}
 

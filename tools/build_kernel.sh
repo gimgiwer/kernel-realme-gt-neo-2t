@@ -1,0 +1,1 @@
+../scripts/build/build_kernel.sh

@@ -1,0 +1,285 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      clean_build:
+        description: 'Perform clean build (clear ccache)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-24.04
+    outputs:
+      kernel: ${{ steps.filter.outputs.kernel }}
+      companion: ${{ steps.filter.outputs.companion }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Paths Filter
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            kernel:
+              - 'KernelSU-Next/**'
+              - '.gitmodules'
+              - 'arch/**'
+              - 'block/**'
+              - 'certs/**'
+              - 'crypto/**'
+              - 'drivers/**'
+              - 'fs/**'
+              - 'include/**'
+              - 'init/**'
+              - 'ipc/**'
+              - 'kernel/**'
+              - 'lib/**'
+              - 'mm/**'
+              - 'net/**'
+              - 'scripts/**'
+              - 'security/**'
+              - 'sound/**'
+              - 'tools/**'
+              - 'usr/**'
+              - 'virt/**'
+              - 'Makefile'
+              - 'Kbuild'
+              - 'Kconfig'
+              - '.github/workflows/ci.yml'
+            companion:
+              - 'userspace/module/**'
+              - '.github/workflows/ci.yml'
+
+  build-companion:
+    name: Package Companion Module
+    needs: changes
+    if: needs.changes.outputs.companion == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate Shell Script Syntax
+        run: |
+          echo "::group::Validating Shell Scripts"
+          bash -n userspace/module/service.sh
+          bash -n userspace/module/power_sync.sh
+          echo "Shell syntax verification passed!"
+          echo "::endgroup::"
+
+      - name: Package Companion Module
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          mkdir -p out
+          STAGING_DIR="out/companion_staging"
+          rm -rf "$STAGING_DIR"
+          cp -r userspace/module "$STAGING_DIR"
+
+          if [ -n "$REF_NAME" ] && [[ "$REF_NAME" == v* ]]; then
+            MOD_VERSION="$REF_NAME"
+          else
+            MOD_VERSION=$(git describe --tags --always 2>/dev/null || echo "v2026.09.27")
+          fi
+          MOD_VERCODE=$(git log -1 --format="%ct" 2>/dev/null || date +%s)
+
+          echo "[+] Injecting dynamic module metadata:"
+          echo "    version: $MOD_VERSION"
+          echo "    versionCode: $MOD_VERCODE"
+
+          sed -i "s|^version=.*|version=${MOD_VERSION}|" "$STAGING_DIR/module.prop"
+          sed -i "s|^versionCode=.*|versionCode=${MOD_VERCODE}|" "$STAGING_DIR/module.prop"
+
+          (cd "$STAGING_DIR" && zip -r9 ../../out/rmx3357-neocore-companion.zip . -x "*.git*")
+          rm -rf "$STAGING_DIR"
+          sha256sum out/rmx3357-neocore-companion.zip
+
+      - name: Upload Companion Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rmx3357-neocore-companion
+          path: out/rmx3357-neocore-companion.zip
+          retention-days: 14
+          if-no-files-found: error
+
+  build-kernel:
+    name: AArch64 Kernel Build
+    needs: changes
+    if: needs.changes.outputs.kernel == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: true
+
+      - name: Checkout Realme Vendor Source
+        uses: actions/checkout@v4
+        with:
+          repository: realme-kernel-opensource/realme_X7max_GTneo_GTneo2T-AndroidT-vendor-source
+          ref: master
+          path: vendor_repo
+          fetch-depth: 1
+
+      - name: Setup Vendor Tree
+        run: |
+          echo "::group::Setting up Vendor Tree and Symlinks"
+          mv vendor_repo/vendor ../vendor
+          rm -rf vendor_repo
+          ln -sfn "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/../kernel-4.19"
+          ln -sfn "$GITHUB_WORKSPACE/drivers" "$GITHUB_WORKSPACE/../drivers"
+          ls -la ../vendor
+          ls -ld ../kernel-4.19
+          echo "::endgroup::"
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            bc bison flex libssl-dev pahole zip wget curl ccache \
+            binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi libelf-dev
+
+      - name: Restore Clang Toolchain Cache
+        uses: actions/cache@v4
+        id: clang-cache
+        with:
+          path: ~/.toolchains/clang-r416183b
+          key: clang-r416183b-v1
+
+      - name: Download Google AOSP Clang 12.0.7
+        if: steps.clang-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "::group::Downloading AOSP Clang Toolchain"
+          mkdir -p "$HOME/.toolchains/clang-r416183b"
+          CLANG_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-12.0.0_r1/clang-r416183b.tar.gz"
+
+          DOWNLOAD_SUCCESS=0
+          if wget -q --timeout=40 --tries=3 "$CLANG_URL" -O /tmp/clang.tar.gz 2>/dev/null && [ -s /tmp/clang.tar.gz ]; then
+            if tar -tzf /tmp/clang.tar.gz bin/clang &>/dev/null; then
+              tar -xzf /tmp/clang.tar.gz -C "$HOME/.toolchains/clang-r416183b"
+              rm -f /tmp/clang.tar.gz
+              DOWNLOAD_SUCCESS=1
+            fi
+          fi
+
+          if [ "$DOWNLOAD_SUCCESS" -eq 0 ] && curl -fsSL --retry 3 --connect-timeout 40 "$CLANG_URL" -o /tmp/clang.tar.gz 2>/dev/null && [ -s /tmp/clang.tar.gz ]; then
+            if tar -tzf /tmp/clang.tar.gz bin/clang &>/dev/null; then
+              tar -xzf /tmp/clang.tar.gz -C "$HOME/.toolchains/clang-r416183b"
+              rm -f /tmp/clang.tar.gz
+              DOWNLOAD_SUCCESS=1
+            fi
+          fi
+
+          if [ "$DOWNLOAD_SUCCESS" -eq 0 ]; then
+            echo "[!] Tarball archive unavailable or throttled. Using AOSP Git sparse checkout fallback..."
+            rm -f /tmp/clang.tar.gz
+            git clone --depth 1 --filter=blob:none --sparse https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android-12.0.0_r1 /tmp/aosp-clang
+            (cd /tmp/aosp-clang && git sparse-checkout set clang-r416183b)
+            mv /tmp/aosp-clang/clang-r416183b/* "$HOME/.toolchains/clang-r416183b/"
+            rm -rf /tmp/aosp-clang
+          fi
+
+          "$HOME/.toolchains/clang-r416183b/bin/clang" --version
+          echo "::endgroup::"
+
+      - name: Setup Ccache Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-kernel-${{ runner.os }}-${{ hashFiles('arch/arm64/configs/**', 'Makefile') }}-${{ github.sha }}
+          restore-keys: |
+            ccache-kernel-${{ runner.os }}-${{ hashFiles('arch/arm64/configs/**', 'Makefile') }}-
+            ccache-kernel-${{ runner.os }}-
+
+      - name: Configure Ccache
+        run: |
+          mkdir -p "$HOME/.cache/ccache"
+          ccache -M 5G
+          ccache -z
+          if [ "${{ github.event.inputs.clean_build }}" = "true" ]; then
+            echo "[*] Clean build requested, clearing ccache..."
+            ccache -C
+          fi
+
+      - name: Build Kernel
+        env:
+          CLANG_PATH: /home/runner/.toolchains/clang-r416183b/bin
+          OUT_DIR: ${{ github.workspace }}/out
+          CCACHE_DIR: /home/runner/.cache/ccache
+          CCACHE_BASEDIR: ${{ github.workspace }}
+          CCACHE_COMPILERCHECK: content
+          CCACHE_SLOPPINESS: time_macros,include_file_mtime,locale
+        run: |
+          chmod +x tools/build_kernel.sh scripts/build/build_kernel.sh scripts/build/magiskboot
+          ./tools/build_kernel.sh
+
+      - name: Show Ccache Statistics
+        run: |
+          ccache -s
+
+      - name: Upload Kernel Release Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: rmx3357-neocore
+          path: |
+            out/boot-rmx3357-neocore.img
+            out/boot-rmx3357-stock-500.img
+          retention-days: 14
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [build-kernel, build-companion]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Source for Release Notes
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Kernel Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rmx3357-neocore
+          path: release_assets
+
+      - name: Download Companion Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rmx3357-neocore-companion
+          path: release_assets
+
+      - name: Create Unified GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "NeoCore Kernel ${{ github.ref_name }}"
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release_assets/boot-rmx3357-neocore.img
+            release_assets/boot-rmx3357-stock-500.img
+            release_assets/rmx3357-neocore-companion.zip

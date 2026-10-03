@@ -95,6 +95,34 @@ struct iio_channel	*flash_ntc_id = NULL;
 /*global variable*/
 extern struct mtk_battery gm;
 
+static unsigned int batt_design_capacity_mah = 4500;
+
+static int batt_design_capacity_mah_set(const char *val,
+					const struct kernel_param *kp)
+{
+	unsigned int v;
+	int ret;
+
+	if (!val)
+		return -EINVAL;
+	ret = kstrtouint(val, 0, &v);
+	if (ret)
+		return ret;
+	if (v < 100 || v > 100000)
+		return -EINVAL;
+	*(unsigned int *)kp->arg = v;
+	return 0;
+}
+
+static const struct kernel_param_ops batt_design_capacity_mah_ops = {
+	.set = batt_design_capacity_mah_set,
+	.get = param_get_uint,
+};
+module_param_cb(batt_design_capacity_mah, &batt_design_capacity_mah_ops,
+		&batt_design_capacity_mah, 0644);
+MODULE_PARM_DESC(batt_design_capacity_mah,
+	"Battery design capacity in mAh (default 4500)");
+
 #if defined(CONFIG_OPLUS_CHARGER_MTK6853) || defined(CONFIG_OPLUS_CHARGER_MTK6833)
 static int bat_temperature_high_precision_val = 0;
 #endif
@@ -647,20 +675,11 @@ static int battery_get_property(struct power_supply *psy,
 			POWER_SUPPLY_CAPACITY_LEVEL_UNKNOWN)
 			val->intval = 0;
 		else {
-			int q_max_mah = 0;
-			int q_max_uah = 0;
-
-			q_max_mah =
-				fg_table_cust_data.fg_profile[
-				gm.battery_id].q_max / 10;
-
-			q_max_uah = q_max_mah * 1000;
-			if (q_max_uah <= 100000) {
-				bm_debug("%s q_max_mah:%d q_max_uah:%d\n",
-					__func__, q_max_mah, q_max_uah);
-				q_max_uah = 100001;
-			}
-			val->intval = q_max_uah;
+			unsigned int raw_cap = READ_ONCE(batt_design_capacity_mah);
+			unsigned int cap_mah = (raw_cap >= 100 &&
+						raw_cap <= 100000) ?
+						raw_cap : 4500;
+			val->intval = (int)(cap_mah * 1000U);
 		}
 		break;
 

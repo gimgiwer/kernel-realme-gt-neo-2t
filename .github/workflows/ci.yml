@@ -147,6 +147,14 @@ jobs:
           rm -rf vendor_repo
           ln -sfn "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/../kernel-4.19"
           ln -sfn "$GITHUB_WORKSPACE/drivers" "$GITHUB_WORKSPACE/../drivers"
+          PATCH_DIR="$GITHUB_WORKSPACE/scripts/build/patches"
+          if [ -d "$PATCH_DIR" ]; then
+            for patch in "$PATCH_DIR"/*.patch; do
+              [ -e "$patch" ] || continue
+              echo "Applying vendor patch: $(basename "$patch")"
+              patch -d ../vendor -p1 --forward --batch < "$patch"
+            done
+          fi
           ls -la ../vendor
           ls -ld ../kernel-4.19
           echo "::endgroup::"

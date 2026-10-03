@@ -135,3 +135,8 @@ all.config
 
 # Kdevelop4
 *.kdev4
+
+# Allow build vendor patches
+!scripts/build/patches/
+!scripts/build/patches/*.patch
+

@@ -106,6 +106,35 @@
 #if defined(CONFIG_MTK_PUMP_EXPRESS_PLUS_SUPPORT)
 #include <mach/mt_pe.h>
 #endif
+
+static unsigned int batt_design_capacity_mah = 4500;
+
+static int batt_design_capacity_mah_set(const char *val,
+					const struct kernel_param *kp)
+{
+	unsigned int v;
+	int ret;
+
+	if (!val)
+		return -EINVAL;
+	ret = kstrtouint(val, 0, &v);
+	if (ret)
+		return ret;
+	if (v < 100 || v > 100000)
+		return -EINVAL;
+	*(unsigned int *)kp->arg = v;
+	return 0;
+}
+
+static const struct kernel_param_ops batt_design_capacity_mah_ops = {
+	.set = batt_design_capacity_mah_set,
+	.get = param_get_uint,
+};
+module_param_cb(batt_design_capacity_mah, &batt_design_capacity_mah_ops,
+		&batt_design_capacity_mah, 0644);
+MODULE_PARM_DESC(batt_design_capacity_mah,
+	"Battery design capacity in mAh (default 4500)");
+
 /* ////////////////////////////////////////////////////////////////////////// */
 /* Battery Logging Entry */
 /* ////////////////////////////////////////////////////////////////////////// */
@@ -683,9 +712,14 @@ static int battery_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
 		val->intval = 0;
 		break;
-	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
-		val->intval = battery_meter_get_QMAX25() * 1000;
+	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN: {
+		unsigned int raw_cap = READ_ONCE(batt_design_capacity_mah);
+		unsigned int cap_mah = (raw_cap >= 100 &&
+					raw_cap <= 100000) ?
+					raw_cap : 4500;
+		val->intval = (int)(cap_mah * 1000U);
 		break;
+	}
 	default:
 		ret = -EINVAL;
 		break;

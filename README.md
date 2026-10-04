@@ -13,12 +13,14 @@
 ## English
 
 Custom Linux 4.19.191 kernel for **Realme GT Neo 2T** (`RMX3357` / `RE5469`) on **MediaTek Dimensity 1200 5G** (`MT6893`).  
-Built for stock firmware **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android 13). Version: **v2026.09.27**.
+Built for stock firmware **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android 13). Version: **v2026.10.04**.
 
 **Key Highlights:**
 - Built-in stealth root via in-tree KernelSU-Next and SuSFS 1.5.5 with hardware safe mode.
 - Fixes stock Dimensity 1200 schedutil governor overheating and battery drain.
 - Sustains 120 Hz display fluidness without microstutter or thermal throttling.
+- Low-battery brownout protection (PMIC DLPT), PPM v3 A78 power budget fix, and true 4500 mAh battery telemetry.
+- Kernel-level 360 Hz touchscreen polling persistence across screen sleep/wake cycles.
 - Reduces background battery drain during Bluetooth audio playback and isolates system telemetry.
 - Expands networking, storage, audio, eBPF tracing, and hardware diagnostic capabilities.
 
@@ -58,7 +60,7 @@ Built for stock firmware **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android
 
 #### 2. Install Root & Companion Module
 1. Install [KernelSU-Next Manager APK (v3.4.0)](https://github.com/rifsxd/KernelSU-Next/releases).
-2. Open KernelSU Manager (or Magisk) and flash the companion module: **`rmx3357-neocore-companion.zip`** (source files in [`userspace/`](userspace/)).
+2. Open KernelSU-Next Manager and flash the companion module: **`rmx3357-neocore-companion.zip`** (source files in [`userspace/`](userspace/)).
 3. Reboot to activate userspace optimizations (ColorOS power profile sync, Bluetooth Little-core affinity, MediaTek logger cleanup).
 
 #### 3. Hardware Safe Mode
@@ -155,6 +157,15 @@ An asynchronous event-driven daemon based on Toybox `inotifyd` with `:cy` (`clos
 The companion service (`service.sh`) stops noisy MediaTek debug loggers and ColorOS crash uploaders:
 - Stops: `emdlogger`, `connsyslogger`, `mobile_log_d`, `bt_dump`, `wifi_dump`, `netdiag`, `criticallog`, `common_dcs`, `phoenix_log_manager`.
 - Keeps: `oiface` running to ensure game frame-rate stabilization and GPU DVFS remain fully functional.
+
+#### 6. Brownout Protection (DLPT) & Battery Health Telemetry (4500mAh / SOH)
+- **PMIC DLPT Voltage Safeguard**: Enforces OPP frequency limits via PMIC MT6359/MT6359P DLPT (`pmic_throttling_dlpt.c`) when battery voltage drops near critical threshold, preventing brownout cutoffs below 3.4V.
+- **PPM v3 & Schedutil Coordination**: Fixed a MediaTek PPM v3 power budget bug that starved Cortex-A78 cores down to 600 mW under low battery, and coordinated `cpufreq_schedutil` with `ppm_low_bat_throttle_active` to prevent sudden frequency spikes.
+- **Accurate Design Capacity & SOH**: Reports genuine dual-cell 4500 mAh (`4500000` uAh) via `charge_full_design` and activates OPlus Smart Charge State of Health (`batt_soh` / `soh_support`) tracking nodes.
+
+#### 7. Kernel-Level 360Hz Touch Sampling Rate Persistence
+- **In-Driver Cache & Restore**: Caches high-rate 360Hz sampling mode across display blank/unblank cycles in the vendor touchpanel driver (`/proc/touchpanel/game_switch_enable`).
+- **Autonomous Kernel Hook**: Reads `sched_power_profile` directly in the touch driver without requiring userspace polling loops or companion scripts.
 
 ---
 
@@ -271,12 +282,14 @@ make -j$(nproc) Image.gz modules
 ## Русский
 
 Кастомное ядро Linux 4.19.191 для **Realme GT Neo 2T** (`RMX3357` / `RE5469`) на процессоре **MediaTek Dimensity 1200 5G** (`MT6893`).  
-Собрано под официальную прошивку **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android 13). Версия: **v2026.09.27**.
+Собрано под официальную прошивку **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android 13). Версия: **v2026.10.04**.
 
 **Ключевые фичи:**
 - Встроенный скрытый Root через KernelSU-Next и SuSFS 1.5.5 с аппаратным безопасным режимом.
 - Убирает перегрев и жор батареи от стокового schedutil на Dimensity 1200.
 - Держит стабильные 120 Гц без микростаттеров и троттлинга.
+- Аппаратная защита от внезапных отключений (PMIC DLPT) при низком заряде и честная ёмкость 4500 мА·ч с телеметрией SOH.
+- Сохранение частоты опроса тача 360 Гц при разблокировке прямо в драйвере ядра.
 - Экономит заряд при прослушивании звука по Bluetooth и режет мусорную телеметрию MediaTek.
 - Дополнительные сетевые, звуковые и диагностические возможности (WireGuard, BBR, CDC NCM, Bitperfect, SocketCAN, SDR, eBPF).
 
@@ -316,7 +329,7 @@ make -j$(nproc) Image.gz modules
 
 #### 2. Установка Root и модуля-компаньона
 1. Установите [KernelSU-Next Manager APK (v3.4.0)](https://github.com/rifsxd/KernelSU-Next/releases).
-2. Откройте KernelSU Manager (или Magisk) и прошейте архив модуля: **`rmx3357-neocore-companion.zip`** (исходники в каталоге [`userspace/`](userspace/)).
+2. Откройте KernelSU-Next Manager и прошейте архив модуля: **`rmx3357-neocore-companion.zip`** (исходники в каталоге [`userspace/`](userspace/)).
 3. Перезагрузите смартфон. Модуль автоматически подхватит синхронизацию профилей ColorOS, перенесёт Bluetooth на малые ядра и отключит спам логгеров MediaTek.
 
 #### 3. Аппаратный безопасный режим (Safe Mode)
@@ -413,6 +426,15 @@ fastboot reboot
 Скрипт `service.sh` при старте глушит фоновые логгеры и службы отправки дампов:
 - Останавливаются: `emdlogger`, `connsyslogger`, `mobile_log_d`, `bt_dump`, `wifi_dump`, `netdiag`, `criticallog`, `common_dcs`, `phoenix_log_manager`.
 - Служба `oiface` остаётся включённой, чтобы игровой стабилизатор фреймрейта и GPU DVFS работали штатно.
+
+#### 6. Защита от внезапных отключений (DLPT) и телеметрия износа батареи (4500 мА·ч / SOH)
+- **Аппаратная защита DLPT**: Включает ограничение верхних частот OPP через подсистему DLPT на контроллерах MT6359/MT6359P (`pmic_throttling_dlpt.c`) при критическом разряде, защищая от просадки напряжения ниже 3.4 В.
+- **Координация PPM v3 и Schedutil**: Исправлен баг алгоритма троттлинга PPM v3, сжимавший бюджет кластера Cortex-A78 до 600 мВт при низком заряде, а в `cpufreq_schedutil` добавлено подавление резких скачков частот по сигналу `ppm_low_bat_throttle_active`.
+- **Честная паспортная ёмкость и SOH**: Узел `charge_full_design` возвращает реальные паспортные 4500 мА·ч (`4500000` мкА·ч), и активированы узлы OPlus Smart Charge State of Health (`batt_soh` / `soh_support`) для замера деградации батареи.
+
+#### 7. Сохранение частоты опроса тача 360 Гц на уровне ядра
+- **Кэширование в драйвере**: Вендорный драйвер сенсора кэширует режим 360 Гц при выключении дисплея и автоматически восстанавливает его при разблокировке (`/proc/touchpanel/game_switch_enable`).
+- **Прямая интеграция с ядром**: Драйвер считывает `sched_power_profile` напрямую из ядра без необходимости в фоновых скриптах переключения в userspace.
 
 ---
 

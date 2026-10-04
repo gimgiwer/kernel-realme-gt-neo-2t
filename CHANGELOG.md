@@ -7,6 +7,28 @@
 <a name="english"></a>
 ## English
 
+### [v2026.10.04] - 2026-10-04
+
+#### 1. Battery Capacity & Health Telemetry
+- Report true 4500 mAh dual-cell design capacity (`charge_full_design`) instead of 0 or current capacity.
+- Enable OPlus Smart Charge State of Health (`batt_soh` / `soh_support`) tracking nodes.
+
+#### 2. Brownout & Low Battery Throttling
+- Cap CPU OPP frequencies via PMIC MT6359/MT6359P DLPT to prevent sudden voltage drop below 3.4V.
+- Fix PPM v3 power budget calculation bug that crushed Cortex-A78 cluster to 600 mW.
+- Coordinate `cpufreq_schedutil` with `ppm_low_bat_throttle_active` to suppress aggressive ramp-ups.
+
+#### 3. Touchscreen 360Hz Sampling Persistence
+- Cache and restore 360Hz sampling rate across screen blank/unblank cycles directly in the kernel driver.
+
+#### 4. Scheduler s2idle Suspend Stability
+- Use `ktime_get_mono_fast_ns()` in `walt_suspend()` to eliminate timekeeping `WARN_ON` warnings and lockups.
+
+#### 5. Wi-Fi Debug Logging Silence
+- Mute verbose MediaTek gen4m Wi-Fi debug masks in `wlan_drv_gen4m.ko` and `service.sh`.
+
+---
+
 ### [v2026.09.27] - 2026-09-27
 
 #### 1. Scheduler CPU Hotplug Concurrency & RCU Barrier Fix
@@ -71,6 +93,28 @@
 
 <a name="русский"></a>
 ## Русский
+
+### [v2026.10.04] - 04.10.2026
+
+#### 1. Ёмкость аккумулятора и телеметрия износа (SOH)
+- Отображение честной паспортной ёмкости 4500 мА·ч (`charge_full_design`) вместо 0 или текущей ёмкости.
+- Включение узлов OPlus Smart Charge State of Health (`batt_soh` / `soh_support`) для замера износа батареи.
+
+#### 2. Защита от внезапного отключения (DLPT) и троттлинг
+- Ограничение верхних частот OPP через DLPT на PMIC MT6359/MT6359P для защиты от падения напряжения ниже 3.4 В.
+- Исправление бага PPM v3, срезавшего бюджет кластера Cortex-A78 до 600 мВт при низком заряде.
+- Координация `cpufreq_schedutil` с флагом `ppm_low_bat_throttle_active` для подавления резких скачков частот.
+
+#### 3. Сохранение частоты опроса тача 360 Гц
+- Кэширование и автоматический возврат режима 360 Гц при включении экрана прямо в драйвере ядра.
+
+#### 4. Стабильность планировщика в Suspend-to-Idle (s2idle)
+- Перевод замера времени в `walt_suspend()` на `ktime_get_mono_fast_ns()` для устранения предупреждений `WARN_ON`.
+
+#### 5. Отключение отладочного спама Wi-Fi
+- Глушение избыточных дебаг-масок в драйвере `wlan_drv_gen4m.ko` и скрипте `service.sh`.
+
+---
 
 ### [v2026.09.27] - 27.09.2026
 

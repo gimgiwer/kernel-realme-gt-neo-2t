@@ -1,6 +1,6 @@
 # Realme GT Neo 2T (RMX3357) Userspace Scripts & Module
 
-Companion components for **KernelSU-Next** or Magisk on Android 13 / realme UI 4.0 (`RMX3357_13.1.0.500(CN01)`). Version: **v2026.09.27**.
+Companion components for **KernelSU-Next** on Android 13 / realme UI 4.0 (`RMX3357_13.1.0.500(CN01)`). Version: **v2026.10.04**.
 
 [English](#english) | [Русский](#русский)
 
@@ -13,24 +13,21 @@ Companion components for **KernelSU-Next** or Magisk on Android 13 / realme UI 4
 
 ```text
 userspace/
-├── module/                  # KernelSU / Magisk module
+├── module/                  # KernelSU-Next module
 │   ├── META-INF/...
 │   ├── module.prop          # Metadata and update channel
 │   ├── system.prop          # Pre-Zygote ART Dalvik VM heap properties
 │   ├── service.sh           # Post-boot tuning service
 │   └── power_sync.sh        # Power profile sync daemon
-└── service.d/               # Standalone scripts for manual install
-    ├── 00_system_service.sh
-    └── 99_power_profile_sync.sh
 ```
 
 ### Components
 
-#### `service.sh` (`service.d/00_system_service.sh`) & `system.prop`
+#### `service.sh` & `system.prop`
 
 `system.prop` applies ART Dalvik VM heap bounds (`dalvik.vm.heapstartsize=12m`, `dalvik.vm.heapgrowthlimit=512m`, `dalvik.vm.heapsize=768m`, `dalvik.vm.heaptargetutilization=0.70`, `dalvik.vm.heapminfree=12m`, `dalvik.vm.heapmaxfree=48m`) via KernelSU `resetprop` prior to `zygote64` initialization. `service.sh` runs once after `/data` decryption and `sys.boot_completed=1`:
 
-*   **Telemetry Cleanup**: Stops MediaTek debug loggers (`emdlogger`, `connsyslogger`, `mobile_log_d`, `bt_dump`, `wifi_dump`, `netdiag`) and ColorOS crash uploaders (`criticallog`, `common_dcs`, `phoenix_log_manager`). Keeps `oiface` alive for gaming GPU DVFS.
+*   **Telemetry Cleanup**: Stops MediaTek debug loggers (`emdlogger`, `connsyslogger`, `mobile_log_d`, `bt_dump`, `wifi_dump`, `netdiag`) and ColorOS crash uploaders (`criticallog`, `common_dcs`, `phoenix_log_manager`). Mutes kernel-level Wi-Fi driver debug spam via `/proc/net/wlan/dbgLevel`. Keeps `oiface` alive for gaming GPU DVFS.
 *   **SurfaceFlinger Tuning**: Utilizes native ColorOS 13.1 dynamic duration engine (`vendor.debug.sf.dynamic_duration.*`) and removes legacy static overrides.
 *   **ART Runtime Bounds**: Configures Dalvik heap sizes proportional to physical RAM, preventing GC stutter and early background process eviction.
 *   **Schedutil & GED GPU DVFS**: Manages cluster frequency caps and transition rate limits via `/proc/sys/kernel/sched_power_profile`, and sets GED GPU DVFS headroom via `/sys/kernel/ged/hal/dvfs_margin_value` (`15`) and `/sys/module/ged/parameters/gx_fb_dvfs_margin` (`150`).
@@ -47,7 +44,7 @@ userspace/
         - *Verification*: Cores 4–7 maintain strictly +0 interrupts (+0% leak), ensuring 100% hardware isolation of Cortex-A78 in Deep Sleep.
     *   *Power & Thermals*: LDAC power drain reduced 4.5–5× (from 18–24%/hr down to 3.5–5%/hr), keeping Little cores at 600 MHz and ambient 26.2 °C.
 
-#### `power_sync.sh` (`service.d/99_power_profile_sync.sh`)
+#### `power_sync.sh`
 
 Event-driven daemon synchronizing ColorOS power toggles and Bluetooth connection state with NeoCore's kernel scheduler profiles (`/proc/sys/kernel/sched_power_profile`):
 
@@ -65,22 +62,7 @@ The companion module operates purely in userspace and maintains full compatibili
 
 ### Installation
 
-#### Option 1: Module (Recommended)
-
-Flash `rmx3357-neocore-companion.zip` via KernelSU Manager or Magisk (automatically removes any legacy standalone `/data/adb/service.d/00_system_service.sh` and `99_power_profile_sync.sh` scripts).
-
-#### Option 2: Manual Setup
-
-```sh
-mkdir -p /data/adb/service.d
-
-cp userspace/service.d/00_system_service.sh /data/adb/service.d/
-cp userspace/service.d/99_power_profile_sync.sh /data/adb/service.d/
-
-chmod 755 /data/adb/service.d/00_system_service.sh \
-          /data/adb/service.d/99_power_profile_sync.sh
-chown -R root:root /data/adb/service.d
-```
+Flash `rmx3357-neocore-companion.zip` via KernelSU-Next Manager.
 
 ---
 
@@ -91,24 +73,21 @@ chown -R root:root /data/adb/service.d
 
 ```text
 userspace/
-├── module/                  # Модуль KernelSU / Magisk
+├── module/                  # Модуль KernelSU-Next
 │   ├── META-INF/...
 │   ├── module.prop          # Метаданные и канал обновлений
 │   ├── system.prop          # Свойства кучи ART Dalvik VM (до старта Zygote)
 │   ├── service.sh           # Сервис настройки после загрузки
 │   └── power_sync.sh        # Демон синхронизации профилей питания
-└── service.d/               # Скрипты для ручной установки
-    ├── 00_system_service.sh
-    └── 99_power_profile_sync.sh
 ```
 
 ### Компоненты
 
-#### `service.sh` (`service.d/00_system_service.sh`) и `system.prop`
+#### `service.sh` и `system.prop`
 
 Файл `system.prop` применяет параметры кучи ART (`dalvik.vm.heapstartsize=12m`, `dalvik.vm.heapgrowthlimit=512m`, `dalvik.vm.heapsize=768m`, `dalvik.vm.heaptargetutilization=0.70`, `dalvik.vm.heapminfree=12m`, `dalvik.vm.heapmaxfree=48m`) через `resetprop` в KernelSU ещё до инициализации `zygote64`. Скрипт `service.sh` выполняется однократно после расшифровки `/data` и установки флага `sys.boot_completed=1`:
 
-*   **Очистка от телеметрии**: Останавливает фоновые дамперы MediaTek (`emdlogger`, `connsyslogger`, `mobile_log_d`, `bt_dump`, `wifi_dump`, `netdiag`) и службы сбора отчётов ColorOS (`criticallog`, `common_dcs`, `phoenix_log_manager`). Сохраняет `oiface` активным для работы игрового GPU DVFS.
+*   **Очистка от телеметрии**: Останавливает фоновые дамперы MediaTek (`emdlogger`, `connsyslogger`, `mobile_log_d`, `bt_dump`, `wifi_dump`, `netdiag`) и службы сбора отчётов ColorOS (`criticallog`, `common_dcs`, `phoenix_log_manager`). Глушит отладочный спам драйвера Wi-Fi через `/proc/net/wlan/dbgLevel`. Сохраняет `oiface` активным для работы игрового GPU DVFS.
 *   **Настройка SurfaceFlinger**: Задействует штатный движок динамической длительности ColorOS 13.1 (`vendor.debug.sf.dynamic_duration.*`) и убирает устаревшие статические задержки.
 *   **Границы кучи ART**: Выставляет размеры кучи Dalvik пропорционально объёму физической памяти при загрузке, предотвращая микрофризы сборщика мусора и раннюю выгрузку фоновых приложений.
 *   **Говернор Schedutil и GED GPU DVFS**: Управляет частотными лимитами кластеров и задержками переключения через ядерный узел `/proc/sys/kernel/sched_power_profile`, а также задаёт порог запаса GPU DVFS через `/sys/kernel/ged/hal/dvfs_margin_value` (`15`) и `/sys/module/ged/parameters/gx_fb_dvfs_margin` (`150`).
@@ -125,7 +104,7 @@ userspace/
         - *Аппаратный замер*: На ядрах 4–7 инкремент прерываний строго равен +0 (+0%), достигнута 100% аппаратная изоляция кластера A78 в Deep Sleep.
     *   *Эффект на аккумуляторе*: Разряд при прослушивании Hi-Res аудио по кодеку LDAC снизился в 4.5–5 раз (с 18–24%/ч до 3.5–5%/ч). Частота кластера Little опустилась до базовых 600 МГц при минимальном напряжении шины. Температура устройства держится на комнатных 26.2 °C.
 
-#### `power_sync.sh` (`service.d/99_power_profile_sync.sh`)
+#### `power_sync.sh`
 
 Событийный демон, синхронизирующий системные переключатели питания ColorOS и статус подключения Bluetooth с планировщиком ядра (`/proc/sys/kernel/sched_power_profile`):
 
@@ -143,19 +122,4 @@ userspace/
 
 ### Установка
 
-#### Вариант 1: Модуль (рекомендуется)
-
-Прошейте архив `rmx3357-neocore-companion.zip` через KernelSU Manager или Magisk (при установке автоматически удаляются дублирующие автономные скрипты `/data/adb/service.d/00_system_service.sh` и `99_power_profile_sync.sh`).
-
-#### Вариант 2: Ручная установка
-
-```sh
-mkdir -p /data/adb/service.d
-
-cp userspace/service.d/00_system_service.sh /data/adb/service.d/
-cp userspace/service.d/99_power_profile_sync.sh /data/adb/service.d/
-
-chmod 755 /data/adb/service.d/00_system_service.sh \
-          /data/adb/service.d/99_power_profile_sync.sh
-chown -R root:root /data/adb/service.d
-```
+Прошейте архив `rmx3357-neocore-companion.zip` через KernelSU-Next Manager.

@@ -8,8 +8,11 @@
 # any tracked files which get ignored after the change.
 #
 # Normal rules (sorted alphabetically)
-#
 .*
+!.gitignore
+!.github
+!.github/**
+out/
 *.a
 *.asn1.[ch]
 *.bin
@@ -132,3 +135,8 @@ all.config
 
 # Kdevelop4
 *.kdev4
+
+# Allow build vendor patches
+!scripts/build/patches/
+!scripts/build/patches/*.patch
+

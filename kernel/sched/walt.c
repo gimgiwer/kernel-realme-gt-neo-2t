@@ -91,7 +91,10 @@ static void walt_resume(void)
 
 static int walt_suspend(void)
 {
-	ktime_last = ktime_get();
+	if (walt_ktime_suspended)
+		return 0;
+
+	ktime_last = ns_to_ktime(ktime_get_mono_fast_ns());
 	walt_ktime_suspended = true;
 	return 0;
 }

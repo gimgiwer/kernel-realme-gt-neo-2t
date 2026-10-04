@@ -1,0 +1,20 @@
+--- a/mediatek/kernel_modules/connectivity/wlan/core/gen4m/os/linux/gl_init.c
++++ b/mediatek/kernel_modules/connectivity/wlan/core/gen4m/os/linux/gl_init.c
+@@ -2125,14 +2125,14 @@ void wlanDebugInit(void)
+ 	/* Set the initial debug level of each module */
+ #if DBG
+ 	/* enable all */
+-	wlanSetDriverDbgLevel(DBG_ALL_MODULE_IDX, DBG_CLASS_MASK);
++	wlanSetDriverDbgLevel(DBG_ALL_MODULE_IDX, 0);
+ #else
+ #ifdef CFG_DEFAULT_DBG_LEVEL
+ 	wlanSetDriverDbgLevel(DBG_ALL_MODULE_IDX,
+-			      CFG_DEFAULT_DBG_LEVEL);
++			      0);
+ #else
+ 	wlanSetDriverDbgLevel(DBG_ALL_MODULE_IDX,
+-			      DBG_LOG_LEVEL_DEFAULT);
++			      0);
+ #endif
+ #endif /* DBG */
+ 

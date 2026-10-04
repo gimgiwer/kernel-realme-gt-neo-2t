@@ -164,6 +164,7 @@
     write_node /proc/sys/net/ipv4/tcp_fastopen 3
 
     # --- K. Security & Logging Hygiene ---
+    write_node /proc/net/wlan/dbgLevel "0xff:0x00"
     chown root:system /proc/config.gz && chmod 0440 /proc/config.gz 2>/dev/null || true
     setprop persist.vendor.aee.log.status 0
     stop aee_aed 2>/dev/null || true

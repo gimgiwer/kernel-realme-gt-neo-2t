@@ -1,0 +1,35 @@
+diff -u -r a/oplus/kernel/charger/charger_ic/oplus_battery_mtk6893R.c b/oplus/kernel/charger/charger_ic/oplus_battery_mtk6893R.c
+--- a/oplus/kernel/charger/charger_ic/oplus_battery_mtk6893R.c	2026-09-30 13:25:15.406612258 +0300
++++ b/oplus/kernel/charger/charger_ic/oplus_battery_mtk6893R.c	2026-09-30 13:25:15.892283466 +0300
+@@ -5847,8 +5847,11 @@
+ 				}
+ 			break;
+ 		case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
+-			if (g_oplus_chip) {
+-				val->intval = g_oplus_chip->batt_fcc * 1000;
++			if (g_oplus_chip && g_oplus_chip->batt_capacity_mah >= 100 &&
++			    g_oplus_chip->batt_capacity_mah <= 20000) {
++				val->intval = g_oplus_chip->batt_capacity_mah * 1000;
++			} else {
++				val->intval = 4500 * 1000;
+ 			}
+ 			break;
+ 		case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
+diff -u -r a/oplus/kernel/charger/oplus_charger.c b/oplus/kernel/charger/oplus_charger.c
+--- a/oplus/kernel/charger/oplus_charger.c	2026-09-30 13:25:15.888610227 +0300
++++ b/oplus/kernel/charger/oplus_charger.c	2026-09-30 13:25:15.893167207 +0300
+@@ -948,6 +948,14 @@
+ 		case POWER_SUPPLY_PROP_CHARGE_FULL:
+ 			val->intval = chip->batt_fcc * 1000;
+ 			break;
++		case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
++			if (chip && chip->batt_capacity_mah >= 100 &&
++			    chip->batt_capacity_mah <= 20000) {
++				val->intval = chip->batt_capacity_mah * 1000;
++			} else {
++				val->intval = 4500 * 1000;
++			}
++			break;
+ 		default:
+ 			pr_err("get prop %d is not supported in batt\n", psp);
+ 			ret = -EINVAL;

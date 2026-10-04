@@ -1,0 +1,11 @@
+--- a/oplus/kernel/charger/oplus_charger.c
++++ b/oplus/kernel/charger/oplus_charger.c
+@@ -4515,7 +4515,7 @@
+ 	chip->smart_chg_bcc_support = of_property_read_bool(node, "qcom,smart_chg_bcc_support");
+ 	chg_err("qcom,smart_chg_bcc_support is %d\n", chip->smart_chg_bcc_support);
+ 
+-	chip->smart_chg_soh_support = of_property_read_bool(node, "qcom,smart_chg_soh_support");
++	chip->smart_chg_soh_support = true;
+ 	chg_err("qcom,smart_chg_soh_support is %d\n", chip->smart_chg_soh_support);
+ 
+ 	charger_xlog_printk(CHG_LOG_CRTI,

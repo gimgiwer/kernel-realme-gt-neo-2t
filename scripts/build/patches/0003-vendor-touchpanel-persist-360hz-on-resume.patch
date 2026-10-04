@@ -1,0 +1,54 @@
+--- a/oplus/kernel/touchpanel/oplus_touchscreen/touchpanel_common_driver.c
++++ b/oplus/kernel/touchpanel/oplus_touchscreen/touchpanel_common_driver.c
+@@ -252,6 +252,10 @@
+             ts->ts_ops->tp_refresh_switch(ts->chip_data, ts->lcd_fps);
+         }
+ 
++        if (ts->ts_ops->set_high_frame_rate) {
++            ts->ts_ops->set_high_frame_rate(ts->chip_data, ts->high_frame_value, 0);
++        }
++
+         ts->ts_ops->mode_switch(ts->chip_data, MODE_NORMAL, true);
+     }
+ }
+@@ -354,6 +358,17 @@
+ }
+ EXPORT_SYMBOL(external_report_touch);
+ 
++void oplus_touch_set_high_frame_rate(int value)
++{
++    if (!g_tp || !g_tp->ts_ops || !g_tp->ts_ops->set_high_frame_rate)
++        return;
++    mutex_lock(&g_tp->mutex);
++    g_tp->ts_ops->set_high_frame_rate(g_tp->chip_data, value, 0);
++    g_tp->high_frame_value = value;
++    mutex_unlock(&g_tp->mutex);
++}
++EXPORT_SYMBOL(oplus_touch_set_high_frame_rate);
++
+ void notify_pen_state(int state)
+ {
+     if (!g_tp) {
+@@ -2174,6 +2189,10 @@
+     ptr = strstr(buf, HIGH_FRAME_RATE);
+     if (ptr) {
+         if (sscanf(ptr + sizeof(HIGH_FRAME_RATE), "%d%d", &value, &time)) {
++            extern unsigned int sched_power_profile;
++            if (value == 0 && READ_ONCE(sched_power_profile) != 0) {
++                value = 1;
++            }
+             if (ts->ts_ops->set_high_frame_rate) {
+                 mutex_lock(&ts->mutex);
+                 ts->ts_ops->set_high_frame_rate(ts->chip_data, value, time);
+@@ -7779,6 +7798,11 @@
+     }
+     tp_register_times++;
+     g_tp = ts;
++    extern unsigned int sched_power_profile;
++    ts->high_frame_value = (READ_ONCE(sched_power_profile) == 0) ? 0 : 1;
++    if (ts->ts_ops->set_high_frame_rate) {
++        ts->ts_ops->set_high_frame_rate(ts->chip_data, ts->high_frame_value, 0);
++    }
+     complete(&ts->pm_complete);
+     TPD_INFO("Touch panel probe : normal end\n");
+     return 0;

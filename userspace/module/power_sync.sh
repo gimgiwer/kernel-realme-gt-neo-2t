@@ -12,6 +12,7 @@ PROFILE_NODE="/proc/sys/kernel/sched_power_profile"
 PPM_CORE_NODE="/proc/ppm/policy/forcelimit_cpu_core"
 GED_HAL_MARGIN_NODE="/sys/kernel/ged/hal/dvfs_margin_value"
 GPU_MARGIN_NODE="/sys/module/ged/parameters/gx_fb_dvfs_margin"
+TOUCH_NODE="/proc/touchpanel/game_switch_enable"
 TARGET_DIR="/data/system/users/0"
 BT_STATE_DIR="/data/misc/bluetooth"
 
@@ -28,6 +29,7 @@ if [ ! -w "$PROFILE_NODE" ]; then
 fi
 
 last_profile=-1
+cached_touch_rate=-1
 _last_sync_ts=0
 
 sync_profile() {
@@ -97,6 +99,21 @@ sync_profile() {
         echo "$target_profile" > "$PROFILE_NODE" 2>/dev/null
         log -t power_sync "Switched to profile $target_profile ($profile_name: GT=$gt_val Super=$super_val Eco=$eco_val)"
         last_profile=$target_profile
+    fi
+
+    # Touch polling rate control: 360 Hz (high_frame_rate 1 0) for Profiles 1, 2, 3; 180 Hz (0 0) for Profile 0
+    if [ "$target_profile" -eq 0 ]; then
+        target_touch=0
+    else
+        target_touch=1
+    fi
+
+    if [ "$target_touch" -ne "$cached_touch_rate" ]; then
+        if [ -w "$TOUCH_NODE" ]; then
+            echo "high_frame_rate $target_touch 0" > "$TOUCH_NODE" 2>/dev/null
+            cached_touch_rate=$target_touch
+            log -t power_sync "Touch polling rate switched to ${target_touch} (360Hz=$target_touch for $profile_name)"
+        fi
     fi
 }
 

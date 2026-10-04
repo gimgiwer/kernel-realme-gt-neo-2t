@@ -21,15 +21,19 @@
 #include "mtk_battery_percentage_throttling.h"
 #endif
 
-#if defined(LOW_BATTERY_PT_SETTING_V2) || defined(LBAT_LIMIT_BCPU_OPP)
+#if defined(LOW_BATTERY_PT_SETTING_V2) || defined(LBAT_LIMIT_BCPU_OPP) || defined(CONFIG_MACH_MT6893)
 #define ENABLE_OPP_LIMIT
 #endif
+
+bool ppm_low_bat_throttle_active = false;
+EXPORT_SYMBOL(ppm_low_bat_throttle_active);
 
 static void ppm_pwrthro_update_limit_cb(void);
 static void ppm_pwrthro_status_change_cb(bool enable);
 #if defined(ENABLE_OPP_LIMIT)
 static bool ppm_pwrthro_is_policy_active(void);
 static void mt_ppm_pwrthro_set_freq_limit(unsigned int cluster, int min_freq_idx, int max_freq_idx);
+static void mt_ppm_pwrthro_set_core_limit(unsigned int cluster, int min_core, int max_core);
 #endif
 
 /* other members will init by ppm_main */
@@ -169,6 +173,27 @@ static void mt_ppm_pwrthro_set_freq_limit(unsigned int cluster, int min_freq_idx
 		ppm_clear_policy_limit(&pwrthro_policy);
 
 }
+
+static void mt_ppm_pwrthro_set_core_limit(unsigned int cluster, int min_core, int max_core)
+{
+	if (cluster >= NR_PPM_CLUSTERS) {
+		ppm_err("Invalid input: cluster = %d\n", cluster);
+		return;
+	}
+
+	if (!pwrthro_policy.is_enabled) {
+		ppm_warn("@%s: pwrthro policy is not enabled!\n", __func__);
+		return;
+	}
+
+	pwrthro_limit_data.limit[cluster].min_core_num = min_core;
+	pwrthro_limit_data.limit[cluster].max_core_num = max_core;
+
+	pwrthro_policy.is_activated = ppm_pwrthro_is_policy_active();
+
+	if (pwrthro_policy.is_activated == false)
+		ppm_clear_policy_limit(&pwrthro_policy);
+}
 #endif
 
 #ifndef DISABLE_BATTERY_PERCENT_PROTECT
@@ -190,10 +215,44 @@ static void ppm_pwrthro_bat_per_protect(BATTERY_PERCENT_LEVEL level)
 
 	switch (level) {
 	case BATTERY_PERCENT_LEVEL_1:
+		WRITE_ONCE(ppm_low_bat_throttle_active, true);
+#if defined(ENABLE_OPP_LIMIT)
+		mt_ppm_pwrthro_set_core_limit(PPM_CLUSTER_L, -1, -1);
+		mt_ppm_pwrthro_set_core_limit(PPM_CLUSTER_B, -1, -1);
+		mt_ppm_pwrthro_set_core_limit(PPM_CLUSTER_BB, -1, -1);
+
+		/* Cap Little cluster (A55) to 1.625 GHz to keep VPROC within lower voltage OPP */
+		mt_ppm_pwrthro_set_freq_limit(PPM_CLUSTER_L, -1, 3);
+
+		/* Cap Mid cluster (A78) to 1.985 GHz to avoid higher VPROC2 voltage steps */
+		mt_ppm_pwrthro_set_freq_limit(PPM_CLUSTER_B, -1, 4);
+
+		/* Cap Prime cluster (A78) to 2.141 GHz to prevent peak transient voltage drops */
+		mt_ppm_pwrthro_set_freq_limit(PPM_CLUSTER_BB, -1, 6);
+
+		/*
+		 * When OPP frequency ceilings are active, do not restrict the Cobra
+		 * power budget down to 600 mW. Capping clusters at OPP 3/4/6 already
+		 * clamps worst-case CPU power below 2500 mW, preventing low-battery
+		 * brownout while avoiding 600 MHz throttling.
+		 */
+		limited_power = 0;
+#else
 		limited_power = PWRTHRO_BAT_PER_MW;
+#endif
 		break;
+
 	default:
-		/* Unlimit */
+		WRITE_ONCE(ppm_low_bat_throttle_active, false);
+		/* Clear core and frequency limits */
+#if defined(ENABLE_OPP_LIMIT)
+		mt_ppm_pwrthro_set_core_limit(PPM_CLUSTER_L, -1, -1);
+		mt_ppm_pwrthro_set_core_limit(PPM_CLUSTER_B, -1, -1);
+		mt_ppm_pwrthro_set_core_limit(PPM_CLUSTER_BB, -1, -1);
+		mt_ppm_pwrthro_set_freq_limit(PPM_CLUSTER_L, -1, -1);
+		mt_ppm_pwrthro_set_freq_limit(PPM_CLUSTER_B, -1, -1);
+		mt_ppm_pwrthro_set_freq_limit(PPM_CLUSTER_BB, -1, -1);
+#endif
 		limited_power = 0;
 		break;
 	}

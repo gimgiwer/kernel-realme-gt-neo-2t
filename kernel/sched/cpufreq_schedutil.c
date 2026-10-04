@@ -121,7 +121,11 @@ static const struct sched_profile_params sched_profiles[SCHED_PROFILE_MAX] = {
 	},
 };
 
+extern bool ppm_low_bat_throttle_active;
+void __attribute__((weak)) oplus_touch_set_high_frame_rate(int value) {}
+
 unsigned int sched_power_profile = SCHED_PROFILE_BALANCED;
+EXPORT_SYMBOL(sched_power_profile);
 static DEFINE_MUTEX(sched_profile_mutex);
 
 static int __schedutil_set_up_rate_limit_us(int cpu, unsigned int rate_limit_us,
@@ -188,6 +192,8 @@ void apply_sched_power_profile(unsigned int profile)
 		mutex_unlock(&sched_profile_mutex);
 
 		sugov_notify_eeff_cap_changed();
+
+		oplus_touch_set_high_frame_rate(profile == SCHED_PROFILE_SUPER_POWERSAVING ? 0 : 1);
 	}
 }
 
@@ -250,7 +256,7 @@ struct sugov_policy {
  * so all three cluster caps are visible atomically after a profile switch.
  */
 static __always_inline unsigned int
-sugov_prime_eeff_cap(struct sugov_policy *sg_policy, unsigned int freq)
+sugov_apply_eeff_cap(struct sugov_policy *sg_policy, unsigned int freq)
 {
 	struct cpufreq_policy *policy = sg_policy->policy;
 	unsigned long cap;
@@ -261,12 +267,30 @@ sugov_prime_eeff_cap(struct sugov_policy *sg_policy, unsigned int freq)
 	switch (first_cpu) {
 	case 0: /* A55 little cluster, CPUs 0-3 */
 		cap = READ_ONCE(sched_little_eeff_cap_khz);
+		if (READ_ONCE(ppm_low_bat_throttle_active)) {
+			if (!cap)
+				cap = 1625000UL;
+			else
+				cap = min(cap, 1625000UL);
+		}
 		break;
 	case 4: /* A78 mid cluster, CPUs 4-6 */
 		cap = READ_ONCE(sched_mid_eeff_cap_khz);
+		if (READ_ONCE(ppm_low_bat_throttle_active)) {
+			if (!cap)
+				cap = 1985000UL;
+			else
+				cap = min(cap, 1985000UL);
+		}
 		break;
 	case 7: /* A78 prime, CPU 7 */
 		cap = READ_ONCE(sched_prime_eeff_cap_khz);
+		if (READ_ONCE(ppm_low_bat_throttle_active)) {
+			if (!cap)
+				cap = 2141000UL;
+			else
+				cap = min(cap, 2141000UL);
+		}
 		break;
 	default:
 		return freq;
@@ -287,6 +311,7 @@ sugov_prime_eeff_cap(struct sugov_policy *sg_policy, unsigned int freq)
 
 	return min(freq, (unsigned int)cap);
 }
+#define sugov_prime_eeff_cap sugov_apply_eeff_cap
 
 struct sugov_cpu {
 	struct update_util_data	update_util;

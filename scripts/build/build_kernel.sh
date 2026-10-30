@@ -190,10 +190,17 @@ cd "$REPACK_DIR"
 
 "$MAGISKBOOT" unpack -h "$BOOT_TEMPLATE"
 cp "$IMAGE_PATH" kernel
-KSU_FORCE_FEATURES="${KSU_FORCE_FEATURES:-kernel_umount:1}"
-if [ -n "$KSU_FORCE_FEATURES" ] && [ -f header ]; then
-    sed -i "s/^cmdline=.*/& kernelsu.force_feature=$KSU_FORCE_FEATURES/" header
-    echo "[+] Injected into boot cmdline: kernelsu.force_feature=$KSU_FORCE_FEATURES"
+
+if [ -f header ]; then
+    # Inject permissive SELinux flags to prevent Phoenix Boot Watchdog panic
+    sed -i "s/^cmdline=.*/& androidboot.selinux=permissive enforcing=0/" header
+    echo "[+] Injected permissive SELinux flags into boot cmdline"
+
+    KSU_FORCE_FEATURES="${KSU_FORCE_FEATURES:-kernel_umount:1}"
+    if [ -n "$KSU_FORCE_FEATURES" ]; then
+        sed -i "s/^cmdline=.*/& kernelsu.force_feature=$KSU_FORCE_FEATURES/" header
+        echo "[+] Injected into boot cmdline: kernelsu.force_feature=$KSU_FORCE_FEATURES"
+    fi
 fi
 "$MAGISKBOOT" repack "$BOOT_TEMPLATE" "$OUT_DIR/boot-rmx3357-neocore.img"
 rm -rf "$REPACK_DIR"

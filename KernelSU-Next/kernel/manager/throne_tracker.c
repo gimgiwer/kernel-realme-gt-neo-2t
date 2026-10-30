@@ -276,11 +276,11 @@ static bool is_lock_held(const char *path)
 	struct path kpath;
 
 	if (kern_path(path, 0, &kpath))
-		return true; // If we cannot find the route, we assume it is not safe
+		return false;
 
 	if (!kpath.dentry) {
 		path_put(&kpath);
-		return true;
+		return false;
 	}
 
 	// Check the VFS lock (d_lock) without blocking ourselves

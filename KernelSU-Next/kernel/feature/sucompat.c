@@ -30,6 +30,7 @@
 #include "runtime/ksud.h"
 #include "compat/kernel_compat.h"
 #include "sucompat.h"
+#include "util.h"
 #include "policy/app_profile.h"
 #include "selinux/selinux.h"
 #include "supercall/supercall.h"
@@ -60,19 +61,6 @@ static const struct ksu_feature_handler su_compat_handler = {
 	.get_handler = su_compat_feature_get,
 	.set_handler = su_compat_feature_set,
 };
-
-static void __user *userspace_stack_buffer(const void *d, size_t len)
-{
-	// Stack Pointer must be 16-byte aligned.
-	// We also subtract a safe margin (256 bytes) 
-	// to avoid corrupting local variables or smth
-	unsigned long sp = current_user_stack_pointer();
-	sp = (sp - len - 256) & ~0xFUL; // Align downwards to nearest 16 bytes
-
-	char __user *p = (char __user *)sp;
-
-	return copy_to_user(p, d, len) ? NULL : p;
-}
 
 static char __user *sh_user_path(void)
 {

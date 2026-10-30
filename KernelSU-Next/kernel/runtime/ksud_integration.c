@@ -408,7 +408,10 @@ static bool check_init_path(char *dpath)
 static bool is_init_rc(struct file *fp)
 {
     if (strcmp(current->comm, "init")) {
-        // we are only interest in `init` process
+        return false;
+    }
+
+    if (!fp || !fp->f_path.dentry) {
         return false;
     }
 
@@ -418,9 +421,9 @@ static bool is_init_rc(struct file *fp)
 
     const char *short_name = fp->f_path.dentry->d_name.name;
     if (strcmp(short_name, "init.rc")) {
-        // we are only interest `init.rc` file name file
         return false;
     }
+
     char path[256];
     char *dpath = d_path(&fp->f_path, path, sizeof(path));
 
@@ -428,7 +431,8 @@ static bool is_init_rc(struct file *fp)
         return false;
     }
 
-    if (!!strcmp(dpath, "/init.rc") && !!strcmp(dpath, "/system/etc/init/hw/init.rc")) {
+    if (strcmp(dpath, "/system/etc/init/hw/init.rc") &&
+        strcmp(dpath, "/init.rc")) {
         return false;
     }
 

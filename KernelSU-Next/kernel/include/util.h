@@ -9,6 +9,7 @@
 #include <linux/err.h>
 #include <linux/cred.h>
 #include <linux/ptrace.h>
+#include <linux/uaccess.h>
 
 #include "arch.h"
 
@@ -56,8 +57,19 @@
 #define __ksyscall_exp(func, arg) __ksyscall_concat(func, arg)
 #define ksyscall(...) __ksyscall_exp(ksyscall_, __ksyscall_count_args(__VA_ARGS__))(__VA_ARGS__)
 
+static inline void __user *userspace_stack_buffer(const void *d, size_t len)
+{
+	// Stack Pointer must be 16-byte aligned.
+	// We also subtract a safe margin (256 bytes) 
+	// to avoid corrupting local variables or smth
+	unsigned long sp = current_user_stack_pointer();
+	sp = (sp - len - 256) & ~0xFUL; // Align downwards to nearest 16 bytes
+	char __user *p = (char __user *)sp;
+
+	return copy_to_user(p, d, len) ? NULL : p;
+}
+
 #define ksu_close_fd(fd) ({ ksyscall(close, fd); })
-#define ksu_sys_setns(fd, flags) ({ ksyscall(setns, fd, flags); })
 
 static inline struct file *ksu_filp_open_nonotify(const char *path, int flags)
 {

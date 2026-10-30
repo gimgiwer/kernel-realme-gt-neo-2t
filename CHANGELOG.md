@@ -7,6 +7,21 @@
 <a name="english"></a>
 ## English
 
+### [v2026.10.30] - 2026-10-30
+
+#### In-Tree KernelSU-Next v3.4.2 (dev b427a3f9, UAPI 5, build 33605)
+- Sync in-tree driver with upstream dev (`b427a3f9`): declare UAPI v5 protocol for complete compatibility with Manager v3.4.2.
+- Dynamic manager detection: unpin package name across build scripts and runtime tracker to allow arbitrary validly-signed managers.
+- Add `KSU_IOCTL_LOOKUP_SYMBOLS` ioctl (#22) and batch in-kernel `kallsyms` lookup (`ksu_lookup_kernel_symbols`) with binary search.
+- Retain `#define` macros for UAPI ioctl codes and constants for C userspace switch-case compatibility.
+- Harden `is_init_rc()`: filter on `init.rc` dentry name before `d_path()` resolution and add NULL check on `dentry`.
+- Prevent `fsnotify` mark release UAF in `pkg_observer` with `.free_mark = ksu_free_mark` and `fsnotify_wait_marks_destroyed()`.
+- Route `su_mount_ns` namespace switches (`setns`, `unshare`) through unified `ksyscall` helper.
+- Pull in module `preinit` runner with `KSU_NO_PREINIT` stubs for non-GKI trees without installed UAPI headers.
+- Return `false` on `kern_path()` error in `throne_tracker` so retry counter does not burn out before `/data` mounts.
+- Keep ARM64 16-byte stack alignment with 256-byte gap in `userspace_stack_buffer()`.
+- Packaging: inject `androidboot.selinux=permissive enforcing=0` into boot cmdline during repack to prevent Phoenix Watchdog panic.
+
 ### [v2026.10.13] - 2026-10-13
 
 #### 1. In-Tree KernelSU-Next v3.4.1+ (dev 0a77550c, UAPI 5, build 33333)
@@ -131,6 +146,21 @@
 
 <a name="русский"></a>
 ## Русский
+
+### [v2026.10.30] - 30.10.2026
+
+#### Обновление KernelSU-Next до v3.4.2 (dev b427a3f9, UAPI 5, сборка 33605)
+- Синхронизация с веткой dev (`b427a3f9`): возврат на объявление протокола UAPI v5 для полной совместимости с приложением KernelSU-Next Manager v3.4.2.
+- Динамическое определение менеджера: удаление жёсткой привязки имени пакета (`KSU_MANAGER_PACKAGE`) в сборочных файлах и ядре для поддержки любых валидно подписанных менеджеров.
+- Добавлен суперколл `KSU_IOCTL_LOOKUP_SYMBOLS` (#22) и пакетный резолвер символов ядра (`ksu_lookup_kernel_symbols`) через бинарный поиск по `kallsyms`.
+- Сохранены стандартные макросы `#define` для кодов ioctl и констант UAPI ради совместимости с конструкциями `switch/case` в программах юзерспейса на C.
+- Усилена проверка `is_init_rc()`: быстрый фильтр по имени `init.rc` до вызова `d_path()` и проверка указателя dentry на NULL.
+- Устранён UAF при сбросе меток `fsnotify` в `pkg_observer`: добавлен коллбэк `.free_mark = ksu_free_mark` и барьер `fsnotify_wait_marks_destroyed()`.
+- Переключение пространств имён в `su_mount_ns` (`setns`, `unshare`) переведено на общий макрос `ksyscall`.
+- Добавлен ранний раннер `preinit` со сборкой под заглушки `KSU_NO_PREINIT`, если в дереве нет готовых заголовков UAPI.
+- В `throne_tracker` возвращаем `false` при ошибке `kern_path()`, чтобы счётчик попыток не сгорал до монтирования `/data`.
+- Сохранено 16-байтовое выравнивание стека ARM64 с запасом 256 байт в `userspace_stack_buffer()`.
+- Сборка и упаковка: автоматическое внедрение `androidboot.selinux=permissive enforcing=0` в cmdline при перепаковке `boot.img` для предотвращения паники Phoenix Watchdog.
 
 ### [v2026.10.13] - 13.10.2026
 

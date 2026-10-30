@@ -34,55 +34,11 @@
 #include "ksu.h"
 #include "su_mount_ns.h"
 #include "compat/kernel_compat.h"
+#include "util.h"
 
 extern int path_mount(const char *dev_name, struct path *path,
                       const char *type_page, unsigned long flags,
                       void *data_page);
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
-#if defined(__aarch64__)
-extern long __arm64_sys_setns(const struct pt_regs *regs);
-#elif defined(__x86_64__)
-extern long __x64_sys_setns(const struct pt_regs *regs);
-#elif defined(__arm__) // https://syscalls.mebeim.net/?table=arm/32/eabi/latest
-extern long sys_setns(const struct pt_regs *regs);
-#endif
-
-static long ksu_sys_setns(int fd, int flags)
-{
-    struct pt_regs regs;
-    memset(&regs, 0, sizeof(regs));
-
-    PT_REGS_PARM1(&regs) = fd;
-    PT_REGS_PARM2(&regs) = flags;
-
-#if defined(__aarch64__)
-    return __arm64_sys_setns(&regs);
-#elif defined(__x86_64__)
-    return __x64_sys_setns(&regs);
-#elif defined(__arm__)
-	return sys_setns(&regs);
-#else
-	return -ENOSYS;
-#endif
-}
-
-static int ksu_sys_unshare(unsigned long flags)
-{
-	return ksys_unshare(flags);
-}
-
-#else
-static long ksu_sys_setns(int fd, int nstype)
-{
-	return sys_setns(fd, nstype);
-}
-
-static long ksu_sys_unshare(unsigned long flags)
-{
-	return sys_unshare(flags);
-}
-#endif
 
 // global mode, need CAP_SYS_ADMIN and CAP_SYS_CHROOT to perform setns
 static void ksu_mnt_ns_global(void)
@@ -152,13 +108,9 @@ try_setns:
     }
 
     fd_install(fd, ns_file);
-    ret = ksu_sys_setns(fd, CLONE_NEWNS);
+    ret = ksyscall(setns, fd, CLONE_NEWNS);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
-	close_fd(fd);
-#else
-	__close_fd(current->files, fd);
-#endif
+    ksu_close_fd(fd);
 
     if (ret) {
         pr_warn("call setns failed: %ld\n", ret);
@@ -182,9 +134,9 @@ out:
 // individual mode , need CAP_SYS_ADMIN to perform unshare and remount
 static void ksu_mnt_ns_individual(void)
 {
-    long ret = ksu_sys_unshare(CLONE_NEWNS);
+    long ret = ksyscall(unshare, CLONE_NEWNS);
     if (ret) {
-        pr_warn("call ksys_unshare failed: %ld\n", ret);
+        pr_warn("call sys_unshare failed: %ld\n", ret);
         return;
     }
 

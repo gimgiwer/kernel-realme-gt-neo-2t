@@ -14,7 +14,7 @@
 ## English
 
 Custom Linux 4.19.191 kernel for **Realme GT Neo 2T** (`RMX3357` / `RE5469`) on **MediaTek Dimensity 1200 5G** (`MT6893`).  
-Built for stock firmware **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android 13). Version: **v2026.10.13**.
+Built for stock firmware **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android 13). Version: **v2026.10.30**.
 
 **Highlights:**
 - Built-in stealth root via in-tree KernelSU-Next (with boot cmdline feature locking) and SuSFS 1.5.5.
@@ -83,10 +83,10 @@ fastboot reboot
 
 ### Stealth & Root (KernelSU-Next + SuSFS 1.5.5)
 
-#### 1. In-Tree KernelSU-Next v3.4.2 (UAPI 5)
+#### 1. In-Tree KernelSU-Next v3.4.2 (UAPI 5, build 33605)
 - **Direct Kernel Integration**: Integrated directly into `drivers/kernelsu` (`CONFIG_KSU_MANUAL_HOOK=y`), avoiding unstable dynamic `kprobes` and hook failures.
-- **Scoped Descriptors & UAPI v5**: Operates over UAPI v5 scoped file descriptors (`[ksu_driver_su]`) with `EVENT_SERVICES` support, granting root privileges only to processes possessing an authenticated descriptor issued by the manager.
-- **Deferred Throne Tracking & Blacklisting**: Uses `task_work` for deferred manager verification and caches APK directories without lock contention. Supports in-kernel module blacklisting (`kernelsu.block_modules`) and restricts `su` to ADB sessions when enabled.
+- **Scoped Descriptors & UAPI v5**: Operates over UAPI v5 scoped file descriptors (`[ksu_driver_su]`) with batch symbol resolution (`KSU_IOCTL_LOOKUP_SYMBOLS`) and `EVENT_SERVICES` support, granting root privileges only to processes possessing an authenticated descriptor.
+- **VFS & Inode Lifecycle**: Fast-paths `init.rc` checks before canonical path resolution (`d_path()`). Drains fsnotify marks via `fsnotify_wait_marks_destroyed()` and uses non-blocking retry logic in `throne_tracker`. Supports in-kernel module blacklisting (`kernelsu.block_modules`) and restricts `su` to ADB sessions when enabled.
 
 #### 2. SuSFS 1.5.5 Kernel Stealth Subsystem
 - **Clean VFS Architecture**: Standard VFS code paths without inline path-redirection hacks, preserving POSIX file locking semantics and preventing SQLite database corruption.
@@ -295,7 +295,7 @@ make -j$(nproc) Image.gz modules
 ## Русский
 
 Кастомное ядро Linux 4.19.191 для **Realme GT Neo 2T** (`RMX3357` / `RE5469`) на процессоре **MediaTek Dimensity 1200 5G** (`MT6893`).  
-Собрано под официальную прошивку **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android 13). Версия: **v2026.10.13**.
+Собрано под официальную прошивку **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android 13). Версия: **v2026.10.30**.
 
 **Основные особенности:**
 - Встроенный скрытый Root через KernelSU-Next (с аппаратной блокировкой фич в cmdline) и SuSFS 1.5.5.
@@ -364,10 +364,10 @@ fastboot reboot
 
 ### Скрытие и Root (KernelSU-Next + SuSFS 1.5.5)
 
-#### 1. Встроенный KernelSU-Next v3.4.2 (UAPI 5)
-- **Прямая интеграция в ядро**: Драйвер встроен непосредственно в исходный код ядра (`drivers/kernelsu`, `CONFIG_KSU_MANUAL_HOOK=y`), что исключает накладные расходы и сбои механизма динамических `kprobes`.
-- **Изолированные дескрипторы и UAPI v5**: Работает через защищённый протокол с файловыми дескрипторами `[ksu_driver_su]` с поддержкой `EVENT_SERVICES`, где root-доступ предоставляется только процессам с аутентифицированным дескриптором от менеджера.
-- **Отложенная верификация через task_work и чёрный список**: Использует `task_work` для отложенной проверки менеджера без блокировок и кэширует пути каталогов APK. Поддерживает блокировку модулей на уровне ядра (`kernelsu.block_modules`) и ограничение `su` только сессиями ADB.
+#### 1. Встроенный KernelSU-Next v3.4.2 (UAPI 5, сборка 33605)
+- **Прямая интеграция в ядро**: Драйвер встроен непосредственно в исходный код ядра (`drivers/kernelsu`, `CONFIG_KSU_MANUAL_HOOK=y`), исключая сбои динамических `kprobes`.
+- **Изолированные дескрипторы и UAPI v5**: Работает через дескрипторы `[ksu_driver_su]` с пакетным поиском символов ядра (`KSU_IOCTL_LOOKUP_SYMBOLS`) и `EVENT_SERVICES`. Root выдаётся только процессам с аутентифицированным дескриптором.
+- **Интеграция с VFS и fsnotify**: Быстрый фильтр `init.rc` перед канонической проверкой пути `d_path()`. Очищает метки fsnotify с синхронизацией очереди ядра (`fsnotify_wait_marks_destroyed()`) и опрашивает `/data` в `throne_tracker` без ложных отказов. Поддерживает чёрный список модулей (`kernelsu.block_modules`) и ограничение `su` только сессиями ADB.
 
 #### 2. Скрытная подсистема SuSFS 1.5.5 на уровне VFS
 - **Чистая архитектура VFS**: Стандартные пути VFS без грубых перенаправлений путей «на лету», что сохраняет блокировки POSIX и исключает повреждение баз данных SQLite.

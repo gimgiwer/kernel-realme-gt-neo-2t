@@ -14,7 +14,7 @@
 ## English
 
 Custom Linux 4.19.191 kernel for **Realme GT Neo 2T** (`RMX3357` / `RE5469`) on **MediaTek Dimensity 1200 5G** (`MT6893`).  
-Built for stock firmware **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android 13). Version: **v2026.10.30**.
+Built for stock firmware **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android 13). Version: **v2026.11.04**.
 
 **Highlights:**
 - Built-in stealth root via in-tree KernelSU-Next (with boot cmdline feature locking) and SuSFS 1.5.5.
@@ -295,7 +295,7 @@ make -j$(nproc) Image.gz modules
 ## Русский
 
 Кастомное ядро Linux 4.19.191 для **Realme GT Neo 2T** (`RMX3357` / `RE5469`) на процессоре **MediaTek Dimensity 1200 5G** (`MT6893`).  
-Собрано под официальную прошивку **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android 13). Версия: **v2026.10.30**.
+Собрано под официальную прошивку **`RMX3357_13.1.0.500(CN01)`** (realme UI 4.0 / Android 13). Версия: **v2026.11.04**.
 
 **Основные особенности:**
 - Встроенный скрытый Root через KernelSU-Next (с аппаратной блокировкой фич в cmdline) и SuSFS 1.5.5.

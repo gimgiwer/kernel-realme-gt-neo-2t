@@ -165,10 +165,11 @@ FILLDIR_RETURN_TYPE my_actor(struct dir_context *ctx, const char *name,
 	}
 
 	// now put this on candidate_path
-	if (d_type == DT_REG && namelen == 8 && !memcmp(name, "base.apk", 8)) {
+	if (d_type == DT_REG && ((namelen == 8 && !memcmp(name, "base.apk", 8)) ||
+				 (namelen == 12 && !memcmp(name, "KernelSU.apk", 12)))) {
 		if (maybe_manager_apk_dir(my_ctx->parent_dir)) {
 			snprintf(candidate_path, DATA_PATH_LEN, "%s/%.*s", my_ctx->parent_dir, namelen, name);
-			strcpy(cached_manager_apk_path, candidate_path);
+			strscpy(cached_manager_apk_path, candidate_path, sizeof(cached_manager_apk_path));
 		}
 		// As soon as we met the base.apk, we can stop
 		return FILLDIR_ACTOR_STOP;

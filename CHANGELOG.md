@@ -7,6 +7,11 @@
 <a name="english"></a>
 ## English
 
+### [v2026.11.04] - 2026-11-04
+
+- **Dynamic Manager Detection**: Restored `ifdef KSU_MANAGER_PACKAGE` in `Kbuild` without a default value. The kernel now verifies only the Genuine v2 APK signature (`KSU_NEXT_MANAGER_HASH`) instead of pinning `com.rifsxd.ksunext`.
+- **Throne Tracker**: `my_actor` now scans for both `base.apk` and `KernelSU.apk`, allowing manager detection on preinstalled or custom system paths. Switched candidate path copying to `strscpy`.
+
 ### [v2026.10.30] - 2026-10-30
 
 #### In-Tree KernelSU-Next v3.4.2 (dev b427a3f9, UAPI 5, build 33605)
@@ -146,6 +151,11 @@
 
 <a name="русский"></a>
 ## Русский
+
+### [v2026.11.04] - 04.11.2026
+
+- **Динамический поиск менеджера**: В `Kbuild` вернули `ifdef KSU_MANAGER_PACKAGE` без дефолтного значения. Ядро больше не привязано к `com.rifsxd.ksunext` и проверяет только цифровую подпись Genuine v2 (`KSU_NEXT_MANAGER_HASH`).
+- **Throne Tracker**: В `my_actor` добавлена проверка имени `KernelSU.apk` наряду с `base.apk`, чтобы находить менеджер при системной или нестандартной установке. Копирование пути кандидата переведено на `strscpy`.
 
 ### [v2026.10.30] - 30.10.2026
 
